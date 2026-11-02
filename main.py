@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -26,7 +26,7 @@ BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-from src.config import RAW_DATA_PATH, HIGH_SEVERITY_THRESHOLD, CRITICAL_PRIORITY_THRESHOLD, OPERATIONS_DB_PATH
+from src.config import RAW_DATA_PATH, HIGH_SEVERITY_THRESHOLD, CRITICAL_PRIORITY_THRESHOLD, OPERATIONS_DB_PATH, ALLOWED_ORIGINS
 from src.graph_engine.relationship_graph import IncidentGraphEngine, CascadingImpactEngine
 from src.geospatial.spatial_intelligence import SpatialIntelligenceEngine
 from src.predictive.risk_predictor import PredictiveRiskEngine
@@ -34,6 +34,7 @@ from src.weather.weather_risk_engine import WeatherRiskEngine
 from src.scoring.priority_scoring import PriorityScoringEngine
 from src.recommendation.action_recommender import ActionRecommendationEngine
 from src.operations.service import OperationsService
+from src.security.auth import AuthService, require_roles, token_from_header
 
 # Initialize FastAPI application
 app = FastAPI(
@@ -51,7 +52,7 @@ app = FastAPI(
 # Enable Cross-Origin Resource Sharing (CORS) for frontends
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -66,6 +67,10 @@ weather_engine = WeatherRiskEngine()
 scoring_engine = PriorityScoringEngine()
 recommendation_engine = ActionRecommendationEngine()
 operations_service = OperationsService(OPERATIONS_DB_PATH)
+auth_service = AuthService(OPERATIONS_DB_PATH)
+VIEWER = ["administrator", "municipal_officer", "department_operator", "viewer"]
+OPERATIONS = ["administrator", "municipal_officer", "department_operator"]
+OFFICERS = ["administrator", "municipal_officer"]
 
 
 # ---------------------------------------------------------------------------
@@ -198,9 +203,34 @@ class ResolutionEvidenceRequest(BaseModel):
     evidence: str = Field(..., min_length=5, max_length=2000, description="Operator evidence reference or resolution note; no binary uploads are stored by this service.")
 
 
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=80, pattern=r"^[A-Za-z0-9_.-]+$")
+    password: str = Field(..., min_length=12, max_length=256)
+
+
 # ---------------------------------------------------------------------------
 # Core System Endpoints
 # ---------------------------------------------------------------------------
+
+@app.post("/api/auth/login", tags=["Authentication"])
+def login(request: LoginRequest, http_request: Request) -> Dict[str, Any]:
+    """Issue an opaque, expiring Bearer session token after rate-limited verification."""
+    client_key = http_request.client.host if http_request.client else "unknown"
+    result = auth_service.login(request.username, request.password, client_key)
+    if not result:
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+    return result
+
+
+@app.post("/api/auth/logout", tags=["Authentication"])
+def logout(token: str = Depends(token_from_header)) -> Dict[str, str]:
+    auth_service.logout(token)
+    return {"status": "logged_out"}
+
+
+@app.get("/api/auth/me", tags=["Authentication"])
+def current_user(token: str = Depends(token_from_header)) -> Dict[str, Any]:
+    return {"data": auth_service.current_user(token)}
 
 @app.get("/", tags=["System Information"])
 def root_endpoint() -> Dict[str, Any]:
@@ -659,20 +689,20 @@ def analyze_operational_intake(incident: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @app.post("/api/incidents", status_code=201, tags=["Unified Operational Pipeline"])
-def submit_incident(request: IncidentIntakeRequest) -> Dict[str, Any]:
+def submit_incident(request: IncidentIntakeRequest, user: Dict[str, Any] = Depends(require_roles(auth_service, OPERATIONS))) -> Dict[str, Any]:
     """Validate, classify, de-duplicate, analyze, route, and persist an incident."""
     record = operations_service.create_incident(request.model_dump(), analyze_operational_intake)
     return {"data": record, "meta": {"pipeline": "classification→duplicate_detection→geospatial_enrichment→risk→cascade_simulation→priority→recommendation→work_order", "source_type": request.source_type}}
 
 
 @app.get("/api/incidents", tags=["Unified Operational Pipeline"])
-def list_operational_incidents() -> Dict[str, Any]:
+def list_operational_incidents(user: Dict[str, Any] = Depends(require_roles(auth_service, VIEWER))) -> Dict[str, Any]:
     records = operations_service.list_incidents()
     return {"data": records, "meta": {"count": len(records), "record_classification": "operator_created_operational_records"}}
 
 
 @app.get("/api/incidents/{incident_id}", tags=["Unified Operational Pipeline"])
-def get_operational_incident(incident_id: str) -> Dict[str, Any]:
+def get_operational_incident(incident_id: str, user: Dict[str, Any] = Depends(require_roles(auth_service, VIEWER))) -> Dict[str, Any]:
     record = operations_service.get_incident(incident_id)
     if not record:
         raise HTTPException(status_code=404, detail="Operational incident not found.")
@@ -680,13 +710,13 @@ def get_operational_incident(incident_id: str) -> Dict[str, Any]:
 
 
 @app.get("/api/work-orders", tags=["Unified Operational Pipeline"])
-def list_work_orders() -> Dict[str, Any]:
+def list_work_orders(user: Dict[str, Any] = Depends(require_roles(auth_service, VIEWER))) -> Dict[str, Any]:
     records = operations_service.list_work_orders()
     return {"data": records, "meta": {"count": len(records)}}
 
 
 @app.patch("/api/work-orders/{work_order_id}/assign", tags=["Unified Operational Pipeline"])
-def assign_work_order(work_order_id: str, request: WorkOrderAssignmentRequest) -> Dict[str, Any]:
+def assign_work_order(work_order_id: str, request: WorkOrderAssignmentRequest, user: Dict[str, Any] = Depends(require_roles(auth_service, OFFICERS))) -> Dict[str, Any]:
     record = operations_service.assign_work_order(work_order_id, request.assignee)
     if not record:
         raise HTTPException(status_code=404, detail="Work order not found.")
@@ -694,7 +724,7 @@ def assign_work_order(work_order_id: str, request: WorkOrderAssignmentRequest) -
 
 
 @app.patch("/api/work-orders/{work_order_id}/start", tags=["Unified Operational Pipeline"])
-def start_work_order(work_order_id: str) -> Dict[str, Any]:
+def start_work_order(work_order_id: str, user: Dict[str, Any] = Depends(require_roles(auth_service, OPERATIONS))) -> Dict[str, Any]:
     """Move an assigned work order into active field execution."""
     record = operations_service.start_work_order(work_order_id)
     if not record:
@@ -703,7 +733,7 @@ def start_work_order(work_order_id: str) -> Dict[str, Any]:
 
 
 @app.patch("/api/work-orders/{work_order_id}/resolve", tags=["Unified Operational Pipeline"])
-def resolve_work_order(work_order_id: str, request: ResolutionEvidenceRequest) -> Dict[str, Any]:
+def resolve_work_order(work_order_id: str, request: ResolutionEvidenceRequest, user: Dict[str, Any] = Depends(require_roles(auth_service, OPERATIONS))) -> Dict[str, Any]:
     record = operations_service.resolve_work_order(work_order_id, request.evidence)
     if not record:
         raise HTTPException(status_code=409, detail="Work order must exist and be assigned or in progress before resolution evidence is accepted.")

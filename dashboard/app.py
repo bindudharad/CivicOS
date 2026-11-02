@@ -688,6 +688,18 @@ elif feature_selection == "Command Center: Incident Operations":
     st.subheader("🛠️ Unified Incident-to-Resolution Command Center")
     st.caption("This view calls the CivicOS FastAPI operational pipeline. Model outputs and cascade results are explicitly labelled as predictions or simulations.")
     api_url = st.sidebar.text_input("CivicOS API URL", value=os.getenv("CIVICOS_API_URL", "http://127.0.0.1:8000")).rstrip("/")
+    st.sidebar.markdown("### Secure session")
+    login_user = st.sidebar.text_input("Username", key="auth-username")
+    login_password = st.sidebar.text_input("Password", type="password", key="auth-password")
+    if st.sidebar.button("Log in"):
+        try:
+            reply = requests.post(f"{api_url}/api/auth/login", json={"username": login_user, "password": login_password}, timeout=10)
+            reply.raise_for_status(); st.session_state["civicos_token"] = reply.json()["access_token"]; st.session_state["civicos_role"] = reply.json()["role"]
+            st.sidebar.success(f"Logged in as {reply.json()['role']}.")
+        except requests.RequestException as exc: st.sidebar.error(f"Login failed: {exc}")
+    headers = {"Authorization": f"Bearer {st.session_state['civicos_token']}"} if st.session_state.get("civicos_token") else {}
+    if not headers:
+        st.warning("Log in to submit or manage operational records. Public intelligence views remain available.")
     submit_tab, queue_tab = st.tabs(["Submit & Analyze", "Work Order Queue"])
     with submit_tab:
         with st.form("operational-intake"):
@@ -705,7 +717,7 @@ elif feature_selection == "Command Center: Incident Operations":
         if submitted:
             payload = {"title": title, "description": description, "latitude": latitude, "longitude": longitude, "ward": ward, "zone": "Central Zone", "severity_score": severity, "affected_population": population, "rainfall_mm": rainfall, "wind_speed_kmh": 20.0, "temperature_c": 24.0, "source_type": "citizen"}
             try:
-                response = requests.post(f"{api_url}/api/incidents", json=payload, timeout=15)
+                response = requests.post(f"{api_url}/api/incidents", json=payload, headers=headers, timeout=15)
                 response.raise_for_status()
                 result = response.json()["data"]
                 st.success(f"Incident {result['id']} was triaged. Status: {result['status']}.")
@@ -715,7 +727,7 @@ elif feature_selection == "Command Center: Incident Operations":
                 st.error(f"CivicOS API is unavailable: {exc}. Start the backend with `python main.py`.")
     with queue_tab:
         try:
-            response = requests.get(f"{api_url}/api/work-orders", timeout=10)
+            response = requests.get(f"{api_url}/api/work-orders", headers=headers, timeout=10)
             response.raise_for_status()
             orders = response.json()["data"]
             if orders:
@@ -731,19 +743,19 @@ elif feature_selection == "Command Center: Incident Operations":
                         if st.button("Assign team"):
                             try:
                                 with st.spinner("Assigning..."):
-                                    reply = requests.patch(f"{api_url}/api/work-orders/{selected_order}/assign", json={"assignee": assignee}, timeout=10)
+                                    reply = requests.patch(f"{api_url}/api/work-orders/{selected_order}/assign", json={"assignee": assignee}, headers=headers, timeout=10)
                                 reply.raise_for_status(); st.success("Team assigned. Refresh queue for updated state.")
                             except requests.RequestException as exc: st.error(f"Assignment failed: {exc}")
                         if st.button("Start field work"):
                             try:
-                                reply = requests.patch(f"{api_url}/api/work-orders/{selected_order}/start", timeout=10); reply.raise_for_status(); st.success("Work is in progress.")
+                                reply = requests.patch(f"{api_url}/api/work-orders/{selected_order}/start", headers=headers, timeout=10); reply.raise_for_status(); st.success("Work is in progress.")
                             except requests.RequestException as exc: st.error(f"Cannot start work: {exc}")
                     with right:
                         evidence = st.text_area("Resolution evidence / note")
                         if st.button("Record resolution"):
                             try:
                                 with st.spinner("Persisting evidence..."):
-                                    reply = requests.patch(f"{api_url}/api/work-orders/{selected_order}/resolve", json={"evidence": evidence}, timeout=10)
+                                    reply = requests.patch(f"{api_url}/api/work-orders/{selected_order}/resolve", json={"evidence": evidence}, headers=headers, timeout=10)
                                 reply.raise_for_status(); st.success("Evidence persisted and incident closed.")
                             except requests.RequestException as exc: st.error(f"Resolution not accepted: {exc}")
                 else:
