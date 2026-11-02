@@ -13,6 +13,8 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 RAW_DATA_PATH = DATA_DIR / "raw" / "urban_incidents.csv"
+RUNTIME_DATA_DIR = DATA_DIR / "runtime"
+OPERATIONS_DB_PATH = RUNTIME_DATA_DIR / "civicos_operations.sqlite3"
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
 
 # Geospatial Parameters (Bangalore / Metro Urban Grid)

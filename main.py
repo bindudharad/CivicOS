@@ -26,12 +26,14 @@ BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-from src.config import RAW_DATA_PATH, HIGH_SEVERITY_THRESHOLD, CRITICAL_PRIORITY_THRESHOLD
+from src.config import RAW_DATA_PATH, HIGH_SEVERITY_THRESHOLD, CRITICAL_PRIORITY_THRESHOLD, OPERATIONS_DB_PATH
 from src.graph_engine.relationship_graph import IncidentGraphEngine, CascadingImpactEngine
 from src.geospatial.spatial_intelligence import SpatialIntelligenceEngine
 from src.predictive.risk_predictor import PredictiveRiskEngine
 from src.weather.weather_risk_engine import WeatherRiskEngine
 from src.scoring.priority_scoring import PriorityScoringEngine
+from src.recommendation.action_recommender import ActionRecommendationEngine
+from src.operations.service import OperationsService
 
 # Initialize FastAPI application
 app = FastAPI(
@@ -62,6 +64,8 @@ spatial_engine = SpatialIntelligenceEngine()
 predictive_engine = PredictiveRiskEngine()
 weather_engine = WeatherRiskEngine()
 scoring_engine = PriorityScoringEngine()
+recommendation_engine = ActionRecommendationEngine()
+operations_service = OperationsService(OPERATIONS_DB_PATH)
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +171,31 @@ class PredictiveRiskRequest(BaseModel):
                 "temperature_c": 22.4
             }
         }
+
+
+class IncidentIntakeRequest(BaseModel):
+    """Validated citizen, sensor, or authorized open-data incident intake."""
+    title: str = Field(..., min_length=5, max_length=120)
+    description: str = Field(..., min_length=10, max_length=2000)
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+    ward: Optional[str] = Field(None, max_length=120)
+    zone: Optional[str] = Field(None, max_length=120)
+    category: Optional[str] = Field(None, max_length=80)
+    severity_score: float = Field(5.0, ge=1.0, le=10.0)
+    affected_population: int = Field(100, ge=1, le=10_000_000)
+    rainfall_mm: float = Field(0.0, ge=0.0)
+    wind_speed_kmh: float = Field(0.0, ge=0.0)
+    temperature_c: float = Field(25.0, ge=-30.0, le=60.0)
+    source_type: str = Field("citizen", pattern="^(citizen|sensor|open_data)$")
+
+
+class WorkOrderAssignmentRequest(BaseModel):
+    assignee: str = Field(..., min_length=2, max_length=120)
+
+
+class ResolutionEvidenceRequest(BaseModel):
+    evidence: str = Field(..., min_length=5, max_length=2000, description="Operator evidence reference or resolution note; no binary uploads are stored by this service.")
 
 
 # ---------------------------------------------------------------------------
@@ -591,6 +620,85 @@ def get_ward_intelligence_summary(ward: str = Query(...)):
 # ============================================================
 # END OF UNIVERSAL LOCATION INTELLIGENCE APIs
 # ============================================================
+
+# ============================================================
+# UNIFIED INCIDENT-TO-RESOLUTION PIPELINE
+# ============================================================
+def analyze_operational_intake(incident: Dict[str, Any]) -> Dict[str, Any]:
+    """Run the existing intelligence engines as one auditable intake pipeline."""
+    ensure_engines_initialized()
+    impact_radius = max(50.0, float(incident["severity_score"]) * 120.0)
+    prediction_input = {
+        "incident_type": incident["incident_type"], "category": incident["category"],
+        "zone": incident.get("zone") or "Central Zone", "severity_score": incident["severity_score"],
+        "impact_radius_meters": impact_radius, "affected_population": incident["affected_population"],
+        "rainfall_mm": incident["rainfall_mm"], "wind_speed_kmh": incident["wind_speed_kmh"],
+        "temperature_c": incident["temperature_c"],
+    }
+    prediction = predictive_engine.predict(prediction_input)
+    cascading_flag = int(prediction["cascading_risk_prediction"])
+    scores = {
+        "composite_severity": scoring_engine.compute_composite_severity(prediction_input),
+        "smart_priority_score": scoring_engine.compute_smart_priority({**prediction_input, "cascading_risk_flag": cascading_flag}),
+        "prevention_impact_score": scoring_engine.compute_prevention_impact({**prediction_input, "cascading_risk_flag": cascading_flag}),
+    }
+    cascade = cascade_engine.predict_cascade(
+        incident_type=incident["incident_type"], severity_score=incident["severity_score"],
+        rainfall_mm=incident["rainfall_mm"], wind_speed_kmh=incident["wind_speed_kmh"],
+        cascading_risk_flag=cascading_flag, root_id="OPERATIONAL-INTAKE",
+    )
+    return {
+        "classification": {key: incident[key] for key in ("incident_type", "category", "department")},
+        "geospatial_enrichment": {"latitude": incident["latitude"], "longitude": incident["longitude"], "ward": incident.get("ward"), "zone": incident.get("zone"), "impact_radius_meters": impact_radius},
+        "prediction": {**prediction, "data_classification": "model_prediction_from_synthetic_reference_training_data"},
+        "weather": weather_engine.evaluate_weather_risk(incident["rainfall_mm"], incident["wind_speed_kmh"], incident["temperature_c"]),
+        "cascade_simulation": {**cascade, "data_classification": "deterministic_simulation_not_observed_event"},
+        "scores": scores,
+        "recommendation": {**recommendation_engine.get_recommendation(incident), "data_classification": "deterministic_recommendation_requires_operator_approval"},
+    }
+
+
+@app.post("/api/incidents", status_code=201, tags=["Unified Operational Pipeline"])
+def submit_incident(request: IncidentIntakeRequest) -> Dict[str, Any]:
+    """Validate, classify, de-duplicate, analyze, route, and persist an incident."""
+    record = operations_service.create_incident(request.model_dump(), analyze_operational_intake)
+    return {"data": record, "meta": {"pipeline": "classification→duplicate_detection→geospatial_enrichment→risk→cascade_simulation→priority→recommendation→work_order", "source_type": request.source_type}}
+
+
+@app.get("/api/incidents", tags=["Unified Operational Pipeline"])
+def list_operational_incidents() -> Dict[str, Any]:
+    records = operations_service.list_incidents()
+    return {"data": records, "meta": {"count": len(records), "record_classification": "operator_created_operational_records"}}
+
+
+@app.get("/api/incidents/{incident_id}", tags=["Unified Operational Pipeline"])
+def get_operational_incident(incident_id: str) -> Dict[str, Any]:
+    record = operations_service.get_incident(incident_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Operational incident not found.")
+    return {"data": record}
+
+
+@app.get("/api/work-orders", tags=["Unified Operational Pipeline"])
+def list_work_orders() -> Dict[str, Any]:
+    records = operations_service.list_work_orders()
+    return {"data": records, "meta": {"count": len(records)}}
+
+
+@app.patch("/api/work-orders/{work_order_id}/assign", tags=["Unified Operational Pipeline"])
+def assign_work_order(work_order_id: str, request: WorkOrderAssignmentRequest) -> Dict[str, Any]:
+    record = operations_service.assign_work_order(work_order_id, request.assignee)
+    if not record:
+        raise HTTPException(status_code=404, detail="Work order not found.")
+    return {"data": record}
+
+
+@app.patch("/api/work-orders/{work_order_id}/resolve", tags=["Unified Operational Pipeline"])
+def resolve_work_order(work_order_id: str, request: ResolutionEvidenceRequest) -> Dict[str, Any]:
+    record = operations_service.resolve_work_order(work_order_id, request.evidence)
+    if not record:
+        raise HTTPException(status_code=404, detail="Work order not found.")
+    return {"data": record, "meta": {"resolution_verification": "operator_attested evidence recorded; automated image verification is not configured"}}
 
 if __name__ == "__main__":
     import uvicorn

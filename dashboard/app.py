@@ -8,8 +8,10 @@ failure graphs, machine learning predictions, and weather risks.
 
 from pathlib import Path
 import sys
+import os
 import pandas as pd
 import numpy as np
+import requests
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
@@ -133,6 +135,7 @@ feature_selection = st.sidebar.selectbox(
         "Feature 8: Preventive Action Recommendation",
         "Feature 9: Prevention Impact Score",
         "Feature 10: Weather-Based Risk Analysis"
+        ,"Command Center: Incident Operations"
     ]
 )
 
@@ -672,6 +675,50 @@ elif feature_selection == "Feature 4: Cascading Impact Prediction":
     with tab_raw:
         st.json(cascade_result)
 
+
+# ===========================================================================
+# UNIFIED OPERATIONAL COMMAND CENTER (BACKED BY FASTAPI)
+# ===========================================================================
+elif feature_selection == "Command Center: Incident Operations":
+    st.subheader("🛠️ Unified Incident-to-Resolution Command Center")
+    st.caption("This view calls the CivicOS FastAPI operational pipeline. Model outputs and cascade results are explicitly labelled as predictions or simulations.")
+    api_url = st.sidebar.text_input("CivicOS API URL", value=os.getenv("CIVICOS_API_URL", "http://127.0.0.1:8000")).rstrip("/")
+    submit_tab, queue_tab = st.tabs(["Submit & Analyze", "Work Order Queue"])
+    with submit_tab:
+        with st.form("operational-intake"):
+            title = st.text_input("Incident title", "Blocked drain near underpass")
+            description = st.text_area("Description", "Heavy rain is approaching and a drain blockage is causing waterlogging near the underpass.")
+            c1, c2, c3 = st.columns(3)
+            with c1: latitude = st.number_input("Latitude", value=12.9716, format="%.6f")
+            with c2: longitude = st.number_input("Longitude", value=77.5946, format="%.6f")
+            with c3: severity = st.slider("Severity", 1.0, 10.0, 8.0, 0.5)
+            c4, c5, c6 = st.columns(3)
+            with c4: rainfall = st.number_input("Rainfall / forecast (mm)", min_value=0.0, value=65.0)
+            with c5: population = st.number_input("Affected population", min_value=1, value=1500)
+            with c6: ward = st.text_input("Ward", "Ward 1")
+            submitted = st.form_submit_button("Run pipeline and create work order", type="primary")
+        if submitted:
+            payload = {"title": title, "description": description, "latitude": latitude, "longitude": longitude, "ward": ward, "zone": "Central Zone", "severity_score": severity, "affected_population": population, "rainfall_mm": rainfall, "wind_speed_kmh": 20.0, "temperature_c": 24.0, "source_type": "citizen"}
+            try:
+                response = requests.post(f"{api_url}/api/incidents", json=payload, timeout=15)
+                response.raise_for_status()
+                result = response.json()["data"]
+                st.success(f"Incident {result['id']} was triaged. Status: {result['status']}.")
+                if result.get("work_order"): st.info(f"Work order {result['work_order']['id']} created for {result['department']}.")
+                st.json(result["analysis"])
+            except requests.RequestException as exc:
+                st.error(f"CivicOS API is unavailable: {exc}. Start the backend with `python main.py`.")
+    with queue_tab:
+        try:
+            response = requests.get(f"{api_url}/api/work-orders", timeout=10)
+            response.raise_for_status()
+            orders = response.json()["data"]
+            if orders:
+                st.dataframe(pd.DataFrame(orders), use_container_width=True, hide_index=True)
+            else:
+                st.info("No operational work orders yet. Submit an incident to create one.")
+        except requests.RequestException:
+            st.warning("Start the CivicOS API to load and manage the work-order queue.")
 
 # ===========================================================================
 # OTHER FEATURES PLACEHOLDERS (PHASE 4 & 5)
