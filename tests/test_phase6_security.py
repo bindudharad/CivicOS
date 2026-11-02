@@ -18,7 +18,7 @@ def test_authentication_rbac_and_logout():
     assert client.get("/api/incidents").status_code == 401
     viewer = _login("phase6_viewer", "Phase6-secure-password-42")
     assert client.get("/api/incidents", headers=viewer).status_code == 200
-    intake = {"title":"Blocked drain", "description":f"Heavy rain has blocked a storm drain near road phase six isolated site {uuid4().hex}", "latitude":12.8616,"longitude":77.4646,"severity_score":8,"affected_population":100}
+    intake = {"title":"Blocked drain", "description":f"Heavy rain has blocked a storm drain near road phase six isolated site {uuid4().hex}", "latitude":11.8616,"longitude":77.4646,"severity_score":8,"affected_population":100}
     assert client.post("/api/incidents", json=intake, headers=viewer).status_code == 403
     operator = _login("phase6_operator", "Phase6-secure-password-42")
     created = client.post("/api/incidents", json=intake, headers=operator)
