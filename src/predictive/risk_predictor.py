@@ -210,13 +210,22 @@ class PredictiveRiskEngine:
         for feat in self.feature_names:
             if feat in NUMERICAL_FEATURES:
                 continue
-            # Parse categorical match: e.g. "incident_type_Flooding / Waterlogging"
-            parts = feat.split("_", 1)
-            cat_name = parts[0]
-            cat_val = parts[1] if len(parts) > 1 else ""
-
-            actual_val = str(incident_data.get(cat_name, "")).strip()
-            row_features[feat] = 1.0 if actual_val == cat_val else 0.0
+            # Correctly identify categorical column prefix even with underscores (e.g. incident_type_...)
+            matched = False
+            for cat_col in CATEGORICAL_FEATURES:
+                prefix = f"{cat_col}_"
+                if feat.startswith(prefix):
+                    cat_val = feat[len(prefix):]
+                    actual_val = str(incident_data.get(cat_col, "")).strip()
+                    row_features[feat] = 1.0 if actual_val == cat_val else 0.0
+                    matched = True
+                    break
+            if not matched:
+                parts = feat.split("_", 1)
+                cat_name = parts[0]
+                cat_val = parts[1] if len(parts) > 1 else ""
+                actual_val = str(incident_data.get(cat_name, "")).strip()
+                row_features[feat] = 1.0 if actual_val == cat_val else 0.0
 
         # DataFrame in exact column order as training
         X_single = pd.DataFrame([row_features])[self.feature_names]

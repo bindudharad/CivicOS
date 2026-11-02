@@ -19,7 +19,7 @@ from typing import Dict, Any, List, Optional
 import pandas as pd
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 # Ensure project root is in Python sys.path
 BASE_DIR = Path(__file__).resolve().parent
@@ -33,6 +33,7 @@ from src.predictive.risk_predictor import PredictiveRiskEngine
 from src.weather.weather_risk_engine import WeatherRiskEngine
 from src.scoring.priority_scoring import PriorityScoringEngine
 from src.recommendation.action_recommender import ActionRecommendationEngine
+from src.simulation.what_if_engine import WhatIfSimulationEngine
 from src.operations.service import OperationsService
 from src.security.auth import AuthService, require_roles, token_from_header
 
@@ -42,9 +43,10 @@ app = FastAPI(
     description=(
         "Person 3 Urban Risk Microservice: Graph-based incident relationships, "
         "DBSCAN geospatial hotspots, Scikit-learn predictive cascading models, "
-        "deterministic cascading consequence trees, and weather hazard analysis."
+        "deterministic cascading consequence trees, what-if stress simulation, "
+        "preventive recommendations, and weather hazard analysis."
     ),
-    version="1.2.0",
+    version="1.3.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -66,6 +68,7 @@ predictive_engine = PredictiveRiskEngine()
 weather_engine = WeatherRiskEngine()
 scoring_engine = PriorityScoringEngine()
 recommendation_engine = ActionRecommendationEngine()
+what_if_engine = WhatIfSimulationEngine()
 operations_service = OperationsService(OPERATIONS_DB_PATH)
 auth_service = AuthService(OPERATIONS_DB_PATH)
 VIEWER = ["administrator", "municipal_officer", "department_operator", "viewer"]
@@ -99,28 +102,23 @@ def ensure_engines_initialized():
 # Pydantic Schemas for Request Validation
 # ---------------------------------------------------------------------------
 class WeatherRiskRequest(BaseModel):
-    rainfall_mm: float = Field(..., ge=0, description="Precipitation in mm (e.g., 65.5)")
-    wind_speed_kmh: float = Field(..., ge=0, description="Wind speed in km/h (e.g., 45.0)")
-    temperature_c: float = Field(..., description="Ambient temperature in Celsius (e.g., 28.5)")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "rainfall_mm": 72.0,
                 "wind_speed_kmh": 48.0,
                 "temperature_c": 22.5
             }
         }
+    )
+    rainfall_mm: float = Field(..., ge=0, description="Precipitation in mm (e.g., 65.5)")
+    wind_speed_kmh: float = Field(..., ge=0, description="Wind speed in km/h (e.g., 45.0)")
+    temperature_c: float = Field(..., description="Ambient temperature in Celsius (e.g., 28.5)")
 
 
 class IncidentScoringRequest(BaseModel):
-    severity_score: float = Field(..., ge=1.0, le=10.0, description="Raw incident severity (1 to 10)")
-    impact_radius_meters: float = Field(..., ge=1, description="Estimated impact radius in meters")
-    affected_population: int = Field(..., ge=1, description="Estimated count of affected citizens")
-    cascading_risk_flag: int = Field(0, ge=0, le=1, description="1 if incident can trigger secondary issues, else 0")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "severity_score": 8.5,
                 "impact_radius_meters": 1200,
@@ -128,18 +126,16 @@ class IncidentScoringRequest(BaseModel):
                 "cascading_risk_flag": 1
             }
         }
+    )
+    severity_score: float = Field(..., ge=1.0, le=10.0, description="Raw incident severity (1 to 10)")
+    impact_radius_meters: float = Field(..., ge=1, description="Estimated impact radius in meters")
+    affected_population: int = Field(..., ge=1, description="Estimated count of affected citizens")
+    cascading_risk_flag: int = Field(0, ge=0, le=1, description="1 if incident can trigger secondary issues, else 0")
 
 
 class CascadePredictionRequest(BaseModel):
-    incident_id: Optional[str] = Field(None, description="Existing Incident ID from dataset (e.g. 'INC-1001')")
-    incident_type: Optional[str] = Field(None, description="Incident type (e.g. 'Flooding / Waterlogging', 'Tree Fall', 'Power Outage')")
-    severity_score: Optional[float] = Field(None, ge=1.0, le=10.0, description="Incident severity score (1.0 to 10.0)")
-    rainfall_mm: Optional[float] = Field(0.0, ge=0.0, description="Current or forecasted rainfall in mm")
-    wind_speed_kmh: Optional[float] = Field(0.0, ge=0.0, description="Current or forecasted wind speed in km/h")
-    cascading_risk_flag: Optional[int] = Field(1, ge=0, le=1, description="1 if cascading risk is enabled, else 0")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "incident_id": "INC-1001",
                 "incident_type": "Flooding / Waterlogging",
@@ -149,21 +145,18 @@ class CascadePredictionRequest(BaseModel):
                 "cascading_risk_flag": 1
             }
         }
+    )
+    incident_id: Optional[str] = Field(None, description="Existing Incident ID from dataset (e.g. 'INC-1001')")
+    incident_type: Optional[str] = Field(None, description="Incident type (e.g. 'Flooding / Waterlogging', 'Tree Fall', 'Power Outage')")
+    severity_score: Optional[float] = Field(None, ge=1.0, le=10.0, description="Incident severity score (1.0 to 10.0)")
+    rainfall_mm: Optional[float] = Field(0.0, ge=0.0, description="Current or forecasted rainfall in mm")
+    wind_speed_kmh: Optional[float] = Field(0.0, ge=0.0, description="Current or forecasted wind speed in km/h")
+    cascading_risk_flag: Optional[int] = Field(1, ge=0, le=1, description="1 if cascading risk is enabled, else 0")
 
 
 class PredictiveRiskRequest(BaseModel):
-    incident_type: str = Field("Flooding / Waterlogging", description="Type of urban incident")
-    category: str = Field("Environmental", description="Municipal infrastructure category")
-    zone: str = Field("South Zone", description="Target municipal zone")
-    severity_score: float = Field(8.0, ge=1.0, le=10.0, description="Assessed incident severity (1 to 10)")
-    impact_radius_meters: float = Field(1000.0, ge=10.0, description="Disruption radius in meters")
-    affected_population: int = Field(5000, ge=1, description="Estimated count of citizens affected")
-    rainfall_mm: float = Field(60.0, ge=0.0, description="Precipitation in mm")
-    wind_speed_kmh: float = Field(35.0, ge=0.0, description="Wind speed in km/h")
-    temperature_c: float = Field(24.0, description="Temperature in Celsius")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "incident_type": "Flooding / Waterlogging",
                 "category": "Environmental",
@@ -176,6 +169,45 @@ class PredictiveRiskRequest(BaseModel):
                 "temperature_c": 22.4
             }
         }
+    )
+    incident_type: str = Field("Flooding / Waterlogging", description="Type of urban incident")
+    category: str = Field("Environmental", description="Municipal infrastructure category")
+    zone: str = Field("South Zone", description="Target municipal zone")
+    severity_score: float = Field(8.0, ge=1.0, le=10.0, description="Assessed incident severity (1 to 10)")
+    impact_radius_meters: float = Field(1000.0, ge=10.0, description="Disruption radius in meters")
+    affected_population: int = Field(5000, ge=1, description="Estimated count of citizens affected")
+    rainfall_mm: float = Field(60.0, ge=0.0, description="Precipitation in mm")
+    wind_speed_kmh: float = Field(35.0, ge=0.0, description="Wind speed in km/h")
+    temperature_c: float = Field(24.0, description="Temperature in Celsius")
+
+
+class WhatIfSimulationRequest(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "additional_rain_mm": 45.0,
+                "target_zone": "South Zone"
+            }
+        }
+    )
+    additional_rain_mm: float = Field(0.0, ge=0.0, le=300.0, description="Surge in rainfall in millimeters")
+    target_zone: Optional[str] = Field("South Zone", description="Target zone for localized shock simulation")
+
+
+class RecommendationRequest(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "incident_type": "Flooding / Waterlogging",
+                "severity_score": 8.0,
+                "rainfall_mm": 55.0
+            }
+        }
+    )
+    incident_type: str = Field("Flooding / Waterlogging", description="Type of urban incident")
+    severity_score: float = Field(7.0, ge=1.0, le=10.0, description="Assessed severity score")
+    rainfall_mm: Optional[float] = Field(0.0, ge=0.0, description="Precipitation in mm")
+    wind_speed_kmh: Optional[float] = Field(0.0, ge=0.0, description="Wind speed in km/h")
 
 
 class IncidentIntakeRequest(BaseModel):
@@ -240,19 +272,19 @@ def root_endpoint() -> Dict[str, Any]:
     ensure_engines_initialized()
     return {
         "project": "CivicOS – Person 3: Predictive Intelligence & Urban Risk Engine",
-        "phase": "Phase 3 - Geospatial & Predictive Intelligence Active",
+        "phase": "Phase 8 - Ultimate 100% Completion & Release",
         "status": "Operational",
         "active_features": [
             {"id": 1, "name": "Urban Incident Relationship Graph", "status": "Implemented & Active (GET /relationships)"},
             {"id": 2, "name": "Geospatial Intelligence", "status": "Implemented & Active (GET /api/geospatial/hotspots, GET /api/geospatial/map-layers)"},
-            {"id": 3, "name": "Predictive Intelligence", "status": "Implemented & Active (POST /api/predict/risk)"},
+            {"id": 3, "name": "Predictive Intelligence", "status": "Implemented & Active (POST /api/predict/risk, GET /api/predict/model-metrics)"},
             {"id": 4, "name": "Cascading Impact Prediction", "status": "Implemented & Active (POST /cascade)"},
-            {"id": 5, "name": "Impact and Severity Scoring", "status": "Implemented & Active"},
-            {"id": 6, "name": "Smart Priority Engine", "status": "Implemented & Active"},
-            {"id": 7, "name": "What-If Simulation", "status": "Scaffold Ready"},
-            {"id": 8, "name": "Preventive Action Recommendation", "status": "Scaffold Ready"},
-            {"id": 9, "name": "Prevention Impact Score", "status": "Implemented & Active"},
-            {"id": 10, "name": "Weather-Based Risk Analysis", "status": "Implemented & Active"},
+            {"id": 5, "name": "Impact and Severity Scoring", "status": "Implemented & Active (POST /api/scoring/evaluate)"},
+            {"id": 6, "name": "Smart Priority Engine", "status": "Implemented & Active (POST /api/scoring/evaluate)"},
+            {"id": 7, "name": "What-If Simulation", "status": "Implemented & Active (POST /api/simulation/what-if)"},
+            {"id": 8, "name": "Preventive Action Recommendation", "status": "Implemented & Active (POST /api/recommendations)"},
+            {"id": 9, "name": "Prevention Impact Score", "status": "Implemented & Active (POST /api/scoring/evaluate)"},
+            {"id": 10, "name": "Weather-Based Risk Analysis", "status": "Implemented & Active (POST /api/weather/analyze)"},
         ],
         "api_documentation": "/docs"
     }
@@ -518,6 +550,33 @@ def evaluate_incident_scores(request: IncidentScoringRequest) -> Dict[str, Any]:
         "smart_priority_score": scoring_engine.compute_smart_priority(data),
         "prevention_impact_score": scoring_engine.compute_prevention_impact(data),
     }
+
+
+@app.post("/api/simulation/what-if", tags=["Feature 7: What-If Simulation"])
+def run_what_if_simulation(request: WhatIfSimulationRequest) -> Dict[str, Any]:
+    """
+    Feature 7: Run counterfactual what-if simulation for precipitation surge and grid shock.
+    """
+    df = get_incidents_df()
+    rainfall_impact = what_if_engine.simulate_rainfall_surge(df, request.additional_rain_mm)
+    power_impact = (
+        what_if_engine.simulate_power_grid_outage(df, request.target_zone or "South Zone")
+        if request.target_zone else None
+    )
+    return {
+        "simulation_type": "Counterfactual Stress Test (What-If)",
+        "baseline_incident_count": len(df),
+        "rainfall_surge_simulation": rainfall_impact,
+        "power_grid_outage_simulation": power_impact,
+    }
+
+
+@app.post("/api/recommendations", tags=["Feature 8: Preventive Action Recommendation"])
+def get_preventive_recommendations(request: RecommendationRequest) -> Dict[str, Any]:
+    """
+    Feature 8: Generate preventive action recommendations and operational playbooks.
+    """
+    return recommendation_engine.get_recommendation(request.model_dump())
 
 
 # ============================================================

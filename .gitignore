@@ -1,7 +1,9 @@
 venv/
+venv_phase8/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 data/runtime/
 *.db
+*.sqlite3
 .env

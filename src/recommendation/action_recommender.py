@@ -43,6 +43,31 @@ class ActionRecommendationEngine:
                 "Dispatch tree cutting team equipped with chainsaws and hydraulic crane",
                 "Isolate downed power/telecom wires before cutting",
                 "Clear arterial lanes for ambulance and bus access"
+            ],
+            "Pothole / Road Damage": [
+                "Deploy cold-mix rapid asphalt patching squad to carriageway",
+                "Erect reflective chevron warning drums around road crater",
+                "Schedule overnight heavy resurfacing for affected lane"
+            ],
+            "Sewer Overflow": [
+                "Dispatch high-pressure jetting and vacuum suction tankers",
+                "Apply environmental disinfectant and lime powder to road surface",
+                "Inspect downstream manholes for solid-waste blockages"
+            ],
+            "Gas Leak Report": [
+                "Establish 300-meter ignition-free containment cordon immediately",
+                "Remotely actuate sector distribution valve shut-off",
+                "Deploy hazardous materials vapor dispersion monitors and mist curtains"
+            ],
+            "Fire Hazard": [
+                "Dispatch multi-tender fire suppression units and aerial ladder",
+                "Isolate adjacent gas and electric utilities in affected zone",
+                "Evacuate downwind buildings and set structural cooling nozzles"
+            ],
+            "Flyover / Bridge Defect": [
+                "Implement immediate heavy-vehicle weight restriction and lane closures",
+                "Deploy structural engineering inspection team with ultrasound sensors",
+                "Install temporary hydraulic shore jacks under vulnerable girder spans"
             ]
         }
 

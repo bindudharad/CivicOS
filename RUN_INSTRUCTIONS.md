@@ -1,31 +1,57 @@
-# Run instructions
+# CivicOS Run Instructions (Phase 8 Final Release)
 
 From `C:\Projects\CivicOS\CivicOS_Person3`:
 
+### 1. One-Click Dual Launch (Windows)
+Double-click or run:
 ```powershell
-python -m pip install -r requirements.txt
-python init_admin.py
+.\start_civicos.bat
+```
+This launches the FastAPI gateway at `http://127.0.0.1:8000` and the Streamlit Command Center at `http://127.0.0.1:8501` in separate terminal windows.
+
+### 2. Manual Independent Launch
+
+**Terminal 1 — FastAPI Backend**:
+```powershell
 python main.py
 ```
+API Documentation & OpenAPI specs: `http://127.0.0.1:8000/docs`
+Health Status: `http://127.0.0.1:8000/health`
 
-In a second terminal:
-
+**Terminal 2 — Streamlit Frontend**:
 ```powershell
 streamlit run dashboard/app.py
 ```
+Command Center Console: `http://127.0.0.1:8501`
 
-Open `http://127.0.0.1:8000/docs` for the API and `http://localhost:8501` for the frontend. Select **Command Center: Incident Operations** in the sidebar to submit an incident through the live API.
-
-Log in from the Command Center sidebar using a user created with `init_admin.py`. Operational APIs require `Authorization: Bearer <session-token>`; public intelligence endpoints remain offline/synthetic demonstration views.
-
-For an isolated repeatable demo database, set `CIVICOS_OPERATIONS_DB` to a disposable SQLite file before starting `python main.py`. Do not use the development database for a public demo.
-
-Verification:
-
+### 3. Authentication & User Provisioning
+To create an administrative user securely without credentials in source code:
 ```powershell
-python tests/test_phase2.py
-python tests/test_phase3.py
-python -m pytest -p no:asyncio tests/test_unified_pipeline.py -q
-python -m pytest -p no:asyncio tests/test_phase5_operations.py -q
-python -m pytest -p no:asyncio tests/test_phase6_security.py -q
+python init_admin.py
+```
+Default pre-provisioned demo accounts:
+- `civicadmin` (Administrator)
+- `phase8_admin` (Administrator)
+- `phase8_viewer` (Viewer)
+
+### 4. Automated Regression & Acceptance Verification
+
+**Run Complete 31-Test Pytest Suite**:
+```powershell
+pytest -v
+```
+
+**Run End-to-End Lifecycle & Security Verification**:
+```powershell
+python run_phase8_lifecycle_security_e2e.py
+```
+
+**Run Performance & Data Quality Benchmarking**:
+```powershell
+python benchmark_performance.py
+```
+
+**Run Playwright Chromium Real Browser Acceptance**:
+```powershell
+python release_browser_phase8.py
 ```

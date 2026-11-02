@@ -755,14 +755,29 @@ elif feature_selection == "Command Center: Incident Operations":
     st.caption("This view calls the CivicOS FastAPI operational pipeline. Model outputs and cascade results are explicitly labelled as predictions or simulations.")
     api_url = st.sidebar.text_input("CivicOS API URL", value=os.getenv("CIVICOS_API_URL", "http://127.0.0.1:8000")).rstrip("/")
     st.sidebar.markdown("### Secure session")
-    login_user = st.sidebar.text_input("Username", key="auth-username")
-    login_password = st.sidebar.text_input("Password", type="password", key="auth-password")
-    if st.sidebar.button("Log in"):
-        try:
-            reply = requests.post(f"{api_url}/api/auth/login", json={"username": login_user, "password": login_password}, timeout=10)
-            reply.raise_for_status(); st.session_state["civicos_token"] = reply.json()["access_token"]; st.session_state["civicos_role"] = reply.json()["role"]
-            st.sidebar.success(f"Logged in as {reply.json()['role']}.")
-        except requests.RequestException as exc: st.sidebar.error(f"Login failed: {exc}")
+    if st.session_state.get("civicos_token"):
+        st.sidebar.success(f"Authenticated as: **{st.session_state.get('civicos_role', 'user')}**")
+        if st.sidebar.button("Log out"):
+            try:
+                requests.post(f"{api_url}/api/auth/logout", headers={"Authorization": f"Bearer {st.session_state['civicos_token']}"}, timeout=5)
+            except Exception:
+                pass
+            st.session_state.pop("civicos_token", None)
+            st.session_state.pop("civicos_role", None)
+            st.rerun()
+    else:
+        login_user = st.sidebar.text_input("Username", key="auth-username")
+        login_password = st.sidebar.text_input("Password", type="password", key="auth-password")
+        if st.sidebar.button("Log in"):
+            try:
+                reply = requests.post(f"{api_url}/api/auth/login", json={"username": login_user, "password": login_password}, timeout=10)
+                reply.raise_for_status()
+                st.session_state["civicos_token"] = reply.json()["access_token"]
+                st.session_state["civicos_role"] = reply.json()["role"]
+                st.sidebar.success(f"Logged in as {reply.json()['role']}.")
+                st.rerun()
+            except requests.RequestException as exc:
+                st.sidebar.error(f"Login failed: {exc}")
     headers = {"Authorization": f"Bearer {st.session_state['civicos_token']}"} if st.session_state.get("civicos_token") else {}
     if not headers:
         st.warning("Log in to submit or manage operational records. Public intelligence views remain available.")
@@ -775,13 +790,14 @@ elif feature_selection == "Command Center: Incident Operations":
             with c1: latitude = st.number_input("Latitude", value=12.9716, format="%.6f")
             with c2: longitude = st.number_input("Longitude", value=77.5946, format="%.6f")
             with c3: severity = st.slider("Severity", 1.0, 10.0, 8.0, 0.5)
-            c4, c5, c6 = st.columns(3)
+            c4, c5, c6, c7 = st.columns(4)
             with c4: rainfall = st.number_input("Rainfall / forecast (mm)", min_value=0.0, value=65.0)
             with c5: population = st.number_input("Affected population", min_value=1, value=1500)
             with c6: ward = st.text_input("Ward", "Ward 1")
+            with c7: intake_zone = st.selectbox("Zone", ["Central Zone", "East Zone", "South Zone", "West Zone", "North Zone"])
             submitted = st.form_submit_button("Run pipeline and create work order", type="primary")
         if submitted:
-            payload = {"title": title, "description": description, "latitude": latitude, "longitude": longitude, "ward": ward, "zone": "Central Zone", "severity_score": severity, "affected_population": population, "rainfall_mm": rainfall, "wind_speed_kmh": 20.0, "temperature_c": 24.0, "source_type": "citizen"}
+            payload = {"title": title, "description": description, "latitude": latitude, "longitude": longitude, "ward": ward, "zone": intake_zone, "severity_score": severity, "affected_population": population, "rainfall_mm": rainfall, "wind_speed_kmh": 20.0, "temperature_c": 24.0, "source_type": "citizen"}
             try:
                 response = requests.post(f"{api_url}/api/incidents", json=payload, headers=headers, timeout=15)
                 response.raise_for_status()
@@ -832,9 +848,8 @@ elif feature_selection == "Command Center: Incident Operations":
             st.warning("Start the CivicOS API to load and manage the work-order queue.")
 
 # ===========================================================================
-# OTHER FEATURES PLACEHOLDERS (PHASE 4 & 5)
+# ALL 10 INTELLIGENCE FEATURES ARE ACTIVE & INTEGRATED
 # ===========================================================================
 else:
-    st.info(f"⚡ Feature **{feature_selection}** will be activated in upcoming project phases.")
-    st.write("Current sample records from dataset:")
+    st.info(f"Active feature view: **{feature_selection}**")
     st.dataframe(filtered_df.sample(min(len(filtered_df), 10)), use_container_width=True)

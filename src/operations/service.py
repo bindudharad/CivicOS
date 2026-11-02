@@ -76,11 +76,16 @@ class OperationsService:
     def classify(description: str, category: Optional[str]) -> Dict[str, str]:
         text = description.casefold()
         rules = [
-            (("drain", "waterlog", "flood", "rain"), "Flooding / Waterlogging", "Environmental", "Drainage & Stormwater"),
-            (("pothole", "road", "bridge"), "Pothole / Road Damage", "Infrastructure", "Roads & Transport"),
-            (("power", "electric", "transformer"), "Power Outage", "Utilities", "Electricity"),
-            (("tree", "branch"), "Tree Fall", "Infrastructure", "Parks & Urban Forestry"),
-            (("pipe", "water main", "leak"), "Water Main Break", "Utilities", "Water Supply"),
+            (("gas leak", "lpg", "gas pipe", "smell of gas"), "Gas Leak Report", "Public Safety", "Emergency Hazards"),
+            (("fire", "smoke", "blaze", "combustion", "flames"), "Fire Hazard", "Public Safety", "Fire & Emergency Services"),
+            (("flyover", "overpass", "bridge defect", "expansion joint", "deck crack"), "Flyover / Bridge Defect", "Infrastructure", "Bridges & Civil Infrastructure"),
+            (("sewer", "sewage", "manhole overflow", "blackwater"), "Sewer Overflow", "Environmental", "Sanitation & Drainage"),
+            (("traffic signal", "signal down", "traffic light", "junction signal"), "Traffic Signal Failure", "Traffic & Transport", "Traffic Management"),
+            (("drain", "waterlog", "flood", "rain", "stormwater"), "Flooding / Waterlogging", "Environmental", "Drainage & Stormwater"),
+            (("pothole", "road crater", "asphalt damage", "road damage", "road cavity"), "Pothole / Road Damage", "Infrastructure", "Roads & Transport"),
+            (("power", "electric", "transformer", "blackout", "grid"), "Power Outage", "Utilities", "Electricity"),
+            (("tree", "branch", "uprooted tree"), "Tree Fall", "Infrastructure", "Parks & Urban Forestry"),
+            (("pipe", "water main", "leak", "pipeline burst"), "Water Main Break", "Utilities", "Water Supply"),
         ]
         for terms, incident_type, detected_category, department in rules:
             if any(term in text for term in terms):
