@@ -44,6 +44,7 @@ st.set_page_config(
 st.markdown("""<style>
 .stApp { background: #07121f; color: #e6f4f7; } [data-testid="stSidebar"] { background: #0a1b2b; }
 [data-testid="stMetric"] { background: #0d2233; border: 1px solid #1b5264; border-radius: 12px; padding: 14px; }
+[data-testid="stMetricLabel"], [data-testid="stMetricValue"] { color: #e6f4f7 !important; }
 h1,h2,h3 { color: #65e5e7 !important; } .stButton > button { background: #0e8e9a; color: white; border: 0; border-radius: 8px; }
 </style>""", unsafe_allow_html=True)
 

@@ -1,6 +1,7 @@
 """Phase 6 authentication, RBAC, CORS, and session invalidation regression tests."""
 from fastapi.testclient import TestClient
 from uuid import uuid4
+from random import uniform
 from main import app, auth_service
 
 client = TestClient(app)
@@ -18,7 +19,7 @@ def test_authentication_rbac_and_logout():
     assert client.get("/api/incidents").status_code == 401
     viewer = _login("phase6_viewer", "Phase6-secure-password-42")
     assert client.get("/api/incidents", headers=viewer).status_code == 200
-    intake = {"title":"Blocked drain", "description":f"Heavy rain has blocked a storm drain near road phase six isolated site {uuid4().hex}", "latitude":11.8616,"longitude":77.4646,"severity_score":8,"affected_population":100}
+    intake = {"title":"Blocked drain", "description":f"Heavy rain has blocked a storm drain near road phase six isolated site {uuid4().hex}", "latitude":uniform(-70, 70),"longitude":uniform(-160, 160),"severity_score":8,"affected_population":100}
     assert client.post("/api/incidents", json=intake, headers=viewer).status_code == 403
     operator = _login("phase6_operator", "Phase6-secure-password-42")
     created = client.post("/api/incidents", json=intake, headers=operator)
