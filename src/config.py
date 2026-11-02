@@ -7,6 +7,7 @@ Contains centralized configuration parameters, file paths,
 and risk threshold definitions used across all engine modules.
 """
 
+import os
 from pathlib import Path
 
 # Base Paths
@@ -14,7 +15,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 RAW_DATA_PATH = DATA_DIR / "raw" / "urban_incidents.csv"
 RUNTIME_DATA_DIR = DATA_DIR / "runtime"
-OPERATIONS_DB_PATH = RUNTIME_DATA_DIR / "civicos_operations.sqlite3"
+OPERATIONS_DB_PATH = Path(os.getenv("CIVICOS_OPERATIONS_DB", str(RUNTIME_DATA_DIR / "civicos_operations.sqlite3"))).resolve()
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
 
 # Geospatial Parameters (Bangalore / Metro Urban Grid)

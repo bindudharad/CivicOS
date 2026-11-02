@@ -41,6 +41,11 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+st.markdown("""<style>
+.stApp { background: #07121f; color: #e6f4f7; } [data-testid="stSidebar"] { background: #0a1b2b; }
+[data-testid="stMetric"] { background: #0d2233; border: 1px solid #1b5264; border-radius: 12px; padding: 14px; }
+h1,h2,h3 { color: #65e5e7 !important; } .stButton > button { background: #0e8e9a; color: white; border: 0; border-radius: 8px; }
+</style>""", unsafe_allow_html=True)
 
 # 2. File Paths
 DATA_PATH = BASE_DIR / "data" / "raw" / "urban_incidents.csv"
@@ -715,6 +720,34 @@ elif feature_selection == "Command Center: Incident Operations":
             orders = response.json()["data"]
             if orders:
                 st.dataframe(pd.DataFrame(orders), use_container_width=True, hide_index=True)
+                active_orders = [order for order in orders if order["status"] != "resolved"]
+                if active_orders:
+                    selected_order = st.selectbox("Manage work order", [order["id"] for order in active_orders])
+                    selected = next(order for order in active_orders if order["id"] == selected_order)
+                    st.caption(f"Status: {selected['status']} · Department: {selected['department']}")
+                    left, right = st.columns(2)
+                    with left:
+                        assignee = st.text_input("Assignee")
+                        if st.button("Assign team"):
+                            try:
+                                with st.spinner("Assigning..."):
+                                    reply = requests.patch(f"{api_url}/api/work-orders/{selected_order}/assign", json={"assignee": assignee}, timeout=10)
+                                reply.raise_for_status(); st.success("Team assigned. Refresh queue for updated state.")
+                            except requests.RequestException as exc: st.error(f"Assignment failed: {exc}")
+                        if st.button("Start field work"):
+                            try:
+                                reply = requests.patch(f"{api_url}/api/work-orders/{selected_order}/start", timeout=10); reply.raise_for_status(); st.success("Work is in progress.")
+                            except requests.RequestException as exc: st.error(f"Cannot start work: {exc}")
+                    with right:
+                        evidence = st.text_area("Resolution evidence / note")
+                        if st.button("Record resolution"):
+                            try:
+                                with st.spinner("Persisting evidence..."):
+                                    reply = requests.patch(f"{api_url}/api/work-orders/{selected_order}/resolve", json={"evidence": evidence}, timeout=10)
+                                reply.raise_for_status(); st.success("Evidence persisted and incident closed.")
+                            except requests.RequestException as exc: st.error(f"Resolution not accepted: {exc}")
+                else:
+                    st.success("All work orders are resolved.")
             else:
                 st.info("No operational work orders yet. Submit an incident to create one.")
         except requests.RequestException:

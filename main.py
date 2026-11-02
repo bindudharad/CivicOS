@@ -693,11 +693,20 @@ def assign_work_order(work_order_id: str, request: WorkOrderAssignmentRequest) -
     return {"data": record}
 
 
+@app.patch("/api/work-orders/{work_order_id}/start", tags=["Unified Operational Pipeline"])
+def start_work_order(work_order_id: str) -> Dict[str, Any]:
+    """Move an assigned work order into active field execution."""
+    record = operations_service.start_work_order(work_order_id)
+    if not record:
+        raise HTTPException(status_code=409, detail="Work order must exist and be assigned before it can start.")
+    return {"data": record}
+
+
 @app.patch("/api/work-orders/{work_order_id}/resolve", tags=["Unified Operational Pipeline"])
 def resolve_work_order(work_order_id: str, request: ResolutionEvidenceRequest) -> Dict[str, Any]:
     record = operations_service.resolve_work_order(work_order_id, request.evidence)
     if not record:
-        raise HTTPException(status_code=404, detail="Work order not found.")
+        raise HTTPException(status_code=409, detail="Work order must exist and be assigned or in progress before resolution evidence is accepted.")
     return {"data": record, "meta": {"resolution_verification": "operator_attested evidence recorded; automated image verification is not configured"}}
 
 if __name__ == "__main__":
