@@ -33,6 +33,10 @@ from src.predictive.risk_predictor import (
     CATEGORICAL_FEATURES,
     EXCLUDED_LEAKAGE_COLUMNS,
 )
+from src.scoring.priority_scoring import PriorityScoringEngine
+from src.recommendation.action_recommender import ActionRecommendationEngine
+from src.weather.weather_risk_engine import WeatherRiskEngine
+from src.simulation.what_if_engine import WhatIfSimulationEngine
 
 # 1. Page Configuration
 st.set_page_config(
@@ -93,6 +97,11 @@ else:
     cascade_engine = None
     spatial_engine = None
     predictive_engine = None
+
+scoring_engine = PriorityScoringEngine()
+recommendation_engine = ActionRecommendationEngine()
+weather_engine = WeatherRiskEngine()
+what_if_engine = WhatIfSimulationEngine()
 
 # 5. Header Section
 st.title("🏙️ CivicOS – Predictive Intelligence & Urban Risk Engine")
@@ -681,6 +690,62 @@ elif feature_selection == "Feature 4: Cascading Impact Prediction":
     with tab_raw:
         st.json(cascade_result)
 
+
+# ===========================================================================
+# FEATURES 5–10: OPERATIONAL INTELLIGENCE VIEWS
+# ===========================================================================
+elif feature_selection in ["Feature 5: Impact & Severity Scoring", "Feature 6: Smart Priority Engine", "Feature 8: Preventive Action Recommendation", "Feature 9: Prevention Impact Score"]:
+    st.subheader(feature_selection)
+    options = [f"{row['incident_id']} | {row['incident_type']}" for _, row in filtered_df.iterrows()]
+    selected = st.selectbox("Scenario incident", options)
+    row = filtered_df[filtered_df["incident_id"] == selected.split(" | ")[0]].iloc[0].to_dict()
+    score_input = {**row, "cascading_risk_flag": int(row.get("cascading_risk_flag", 0))}
+    composite = scoring_engine.compute_composite_severity(score_input)
+    priority = scoring_engine.compute_smart_priority(score_input)
+    prevention = scoring_engine.compute_prevention_impact(score_input)
+    if feature_selection == "Feature 5: Impact & Severity Scoring":
+        st.caption("Deterministic score from reported severity and geographic impact radius; synthetic reference dataset.")
+        a, b, c = st.columns(3); a.metric("Composite severity", f"{composite}/10"); b.metric("Reported severity", f"{row['severity_score']}/10"); c.metric("Impact radius", f"{row['impact_radius_meters']} m")
+        st.info(f"Formula: 0.85 × reported severity + capped radius contribution. Affected population: {row['affected_population']:,}; uncertainty: asset exposure and recurrence are not configured for this dataset.")
+    elif feature_selection == "Feature 6: Smart Priority Engine":
+        st.caption("Dispatch score from severity, affected population, and cascade flag.")
+        a, b, c = st.columns(3); a.metric("Priority score", f"{priority}/100"); b.metric("Response", "Immediate" if priority >= 70 else "Standard"); c.metric("Department", recommendation_engine.get_recommendation(row)["suggested_crew"])
+        st.bar_chart(pd.DataFrame({"factor": ["Severity", "Population", "Cascade"], "contribution": [row['severity_score'] / 10 * 55, min(row['affected_population'] / 15000 * 25, 25), 20 if row.get('cascading_risk_flag') else 0]}).set_index("factor"))
+    elif feature_selection == "Feature 8: Preventive Action Recommendation":
+        recommendation = recommendation_engine.get_recommendation(row)
+        st.caption("Deterministic playbook recommendation requiring operator approval; linked operational work orders are created through Command Center intake.")
+        st.metric("Dispatch urgency", recommendation["dispatch_urgency"])
+        for action in recommendation["recommended_actions"]: st.success(action)
+        st.info(f"Evidence: {row['incident_type']}, severity {row['severity_score']}/10, zone {row['zone']}; uncertainty: no verified physical asset inspection is available.")
+    else:
+        estimated_post = max(priority - prevention, 0)
+        st.caption("Estimated prevention impact derived from the priority engine; not a measured financial saving.")
+        a, b, c = st.columns(3); a.metric("Baseline priority", priority); b.metric("Estimated prevention impact", prevention); c.metric("Estimated residual priority", estimated_post)
+        st.bar_chart(pd.DataFrame({"scenario": ["Baseline", "Estimated after prevention"], "priority": [priority, estimated_post]}).set_index("scenario"))
+
+elif feature_selection == "Feature 7: What-If Simulation":
+    st.subheader("Feature 7: What-If Simulation")
+    st.caption("Isolated deterministic scenario; it does not change incident records.")
+    rain_surge = st.slider("Additional rainfall (mm)", 0.0, 150.0, 50.0, 5.0)
+    zone = st.selectbox("Target zone", sorted(filtered_df["zone"].unique()))
+    baseline = what_if_engine.simulate_rainfall_surge(filtered_df, 0.0)
+    scenario = what_if_engine.simulate_rainfall_surge(filtered_df, rain_surge)
+    power = what_if_engine.simulate_power_grid_outage(filtered_df, zone)
+    st.dataframe(pd.DataFrame([{"scenario":"Baseline", **baseline}, {"scenario":"Rainfall surge", **scenario}]), use_container_width=True)
+    st.info(f"Zone stress context: {power['current_zone_incidents']} current incidents; projected secondary traffic gridlocks: {power['projected_secondary_traffic_gridlocks']}. Assumption: proportional stress model, not a calibrated forecast.")
+
+elif feature_selection == "Feature 10: Weather-Based Risk Analysis":
+    st.subheader("Feature 10: Weather-Based Risk Analysis")
+    st.caption("Manual offline demonstration weather input; no external weather feed is configured.")
+    a, b, c = st.columns(3)
+    with a: rainfall = st.number_input("Rainfall (mm)", min_value=0.0, value=65.0)
+    with b: wind = st.number_input("Wind speed (km/h)", min_value=0.0, value=20.0)
+    with c: temperature = st.number_input("Temperature (°C)", value=24.0)
+    weather = weather_engine.evaluate_weather_risk(rainfall, wind, temperature)
+    st.metric("Weather threat level", weather["threat_level"])
+    st.metric("Risk multiplier", weather["risk_multiplier"])
+    for alert in weather["active_alerts"]: st.warning(alert)
+    st.info("Source: operator-entered simulated input. Freshness and forecast confidence are unavailable unless an authorized external feed is configured.")
 
 # ===========================================================================
 # UNIFIED OPERATIONAL COMMAND CENTER (BACKED BY FASTAPI)

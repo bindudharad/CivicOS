@@ -220,9 +220,23 @@ class SpatialIntelligenceEngine:
         - Semi-transparent impact radius buffer boundaries
         - Hotspot cluster centroid indicators
         """
+        required = {"latitude", "longitude"}
+        if df.empty or not required.issubset(df.columns):
+            fig = go.Figure()
+            fig.update_layout(title="No valid incident locations available to map.", paper_bgcolor="#07121f", plot_bgcolor="#07121f", font=dict(color="#e6f4f7"))
+            return fig
+
+        # Never mutate the caller's filtered dataframe; only map valid coordinates.
+        df = df.copy()
+        df["latitude"] = pd.to_numeric(df["latitude"], errors="coerce")
+        df["longitude"] = pd.to_numeric(df["longitude"], errors="coerce")
+        severity = df["severity_score"] if "severity_score" in df.columns else pd.Series(0.0, index=df.index)
+        df["severity_score"] = pd.to_numeric(severity, errors="coerce").fillna(0.0)
+        df = df.dropna(subset=["latitude", "longitude"])
+        df = df[df["latitude"].between(-90, 90) & df["longitude"].between(-180, 180)]
         if df.empty:
             fig = go.Figure()
-            fig.update_layout(title="No incident locations available to map.")
+            fig.update_layout(title="No valid incident coordinates remain after validation.", paper_bgcolor="#07121f", plot_bgcolor="#07121f", font=dict(color="#e6f4f7"))
             return fig
 
         # Run hotspot clustering
@@ -250,7 +264,7 @@ class SpatialIntelligenceEngine:
             buffer_lon = []
             
             # Take incidents (or high severity ones if dataset is dense)
-            sample_for_buffers = df_plot.sort_values(by="severity_score", reverse=True if hasattr(df_plot, "sort_values") else False)
+            sample_for_buffers = df_plot.sort_values(by="severity_score", ascending=False, na_position="last")
             for _, row in sample_for_buffers.iterrows():
                 radius = float(row.get("impact_radius_meters", 150))
                 clats, clons = self.create_circle_buffer_coordinates(
@@ -262,7 +276,7 @@ class SpatialIntelligenceEngine:
                 buffer_lat.extend(clats + [None])
                 buffer_lon.extend(clons + [None])
 
-            buffer_trace = go.Scattermapbox(
+            buffer_trace = go.Scattermap(
                 lat=buffer_lat,
                 lon=buffer_lon,
                 mode="lines",
@@ -302,7 +316,7 @@ class SpatialIntelligenceEngine:
                 hover_text.append(tooltip)
                 sizes.append(max(int(sev * 2.2), 9))
 
-            cat_trace = go.Scattermapbox(
+            cat_trace = go.Scattermap(
                 lat=cat_df["latitude"],
                 lon=cat_df["longitude"],
                 mode="markers",
@@ -332,7 +346,7 @@ class SpatialIntelligenceEngine:
                 for h in hotspots
             ]
 
-            hotspot_trace = go.Scattermapbox(
+            hotspot_trace = go.Scattermap(
                 lat=h_lats,
                 lon=h_lons,
                 mode="markers+text",
@@ -356,7 +370,7 @@ class SpatialIntelligenceEngine:
         center_lon = float(df_plot["longitude"].mean()) if not df_plot.empty else 77.5946
 
         fig.update_layout(
-            mapbox=dict(
+            map=dict(
                 style="open-street-map",
                 center=dict(lat=center_lat, lon=center_lon),
                 zoom=11.2,
