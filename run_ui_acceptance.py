@@ -67,7 +67,7 @@ def main():
         # Step 2: Perform Login
         print("\n[Step 2] Authenticating as phase8_admin...")
         page.fill("input[type='text']", "phase8_admin")
-        page.fill("input[type='password']", "Phase8AdminSecure123!")
+        test_pass = os.getenv("CIVICOS_TEST_PASSWORD", ""); page.fill("input[type='password']", test_pass)
         page.click("button[type='submit']")
         
         # Wait for client-side navigation to Command Center

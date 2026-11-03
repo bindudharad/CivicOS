@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Search, LogOut, Shield, ChevronDown, CheckCircle2 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import { healthAPI } from '../../lib/api'
+import { useSystemHealth } from '../../contexts/HealthContext'
 
 interface NavbarProps {
   onOpenCommandPalette?: () => void
@@ -29,11 +29,11 @@ const ROUTE_TITLES: Record<string, { title: string; category: string }> = {
 
 const ZONES = ['All Bengaluru Zones', 'Central Zone', 'East Zone', 'West Zone', 'North Zone', 'South Zone']
 
-export default function Navbar({ onOpenCommandPalette, onMobileMenuOpen }: NavbarProps) {
+export default function Navbar({ onOpenCommandPalette }: NavbarProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, logout } = useAuth()
-  const [backendStatus, setBackendStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking')
+  const { systemStatus, probeHealth } = useSystemHealth()
   const [selectedZone, setSelectedZone] = useState('All Bengaluru Zones')
   const [userMenuOpen, setUserMenuOpen] = useState(false)
 
@@ -42,12 +42,12 @@ export default function Navbar({ onOpenCommandPalette, onMobileMenuOpen }: Navba
     category: 'Intelligence',
   }
 
+  // Probe health on navigation if outside dashboard
   useEffect(() => {
-    setBackendStatus('checking')
-    healthAPI.health()
-      .then(() => setBackendStatus('connected'))
-      .catch(() => setBackendStatus('disconnected'))
-  }, [location.pathname])
+    if (location.pathname !== '/') {
+      probeHealth()
+    }
+  }, [location.pathname, probeHealth])
 
   const handleLogout = async () => {
     await logout()
@@ -58,25 +58,20 @@ export default function Navbar({ onOpenCommandPalette, onMobileMenuOpen }: Navba
     <header className="sticky top-0 z-10 flex items-center justify-between h-16 px-4 sm:px-6 border-b border-border-standard bg-bg-midnight/80 backdrop-blur-xl select-none">
       {/* Breadcrumb & Title */}
       <div className="flex items-center gap-3">
-        {onMobileMenuOpen && (
-          <button
-            onClick={onMobileMenuOpen}
-            className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-elevated md:hidden"
-            aria-label="Open mobile navigation"
-          >
-            <span className="text-lg">☰</span>
-          </button>
-        )}
-        <span className="hidden sm:inline-block text-xs font-mono font-semibold uppercase tracking-wider text-accent-cyan px-2 py-0.5 rounded bg-accent-cyan/10 border border-accent-cyan/20">
-          {currentRoute.category}
-        </span>
-        <span className="text-text-muted hidden sm:inline-block">/</span>
-        <h1 className="text-base sm:text-lg font-bold text-text-primary tracking-tight truncate max-w-xs sm:max-w-md">
-          {currentRoute.title}
-        </h1>
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-mono text-text-muted uppercase tracking-wider">
+              {currentRoute.category}
+            </span>
+            <span className="text-text-muted text-xs">/</span>
+            <h1 className="text-sm font-bold text-text-primary tracking-tight">
+              {currentRoute.title}
+            </h1>
+          </div>
+        </div>
       </div>
 
-      {/* Right Controls */}
+      {/* Right Actions */}
       <div className="flex items-center gap-3">
         {/* City Zone Selector */}
         <div className="relative hidden md:block">
@@ -106,17 +101,21 @@ export default function Navbar({ onOpenCommandPalette, onMobileMenuOpen }: Navba
           </kbd>
         </button>
 
-        {/* Backend Status Indicator */}
+        {/* Unified Backend Status Indicator */}
         <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-surface-elevated border border-border-subtle text-xs font-mono">
           <span className={`w-2 h-2 rounded-full ${
-            backendStatus === 'connected' ? 'bg-severity-low animate-pulse' :
-            backendStatus === 'disconnected' ? 'bg-severity-critical' : 'bg-accent-blue animate-pulse'
+            systemStatus === 'connected' ? 'bg-severity-low animate-pulse' :
+            systemStatus === 'degraded' ? 'bg-severity-high animate-pulse' :
+            systemStatus === 'disconnected' ? 'bg-severity-critical' : 'bg-accent-blue animate-pulse'
           }`} />
           <span className={
-            backendStatus === 'connected' ? 'text-text-secondary' :
-            backendStatus === 'disconnected' ? 'text-severity-critical' : 'text-accent-blue'
+            systemStatus === 'connected' ? 'text-text-secondary' :
+            systemStatus === 'degraded' ? 'text-severity-high font-medium' :
+            systemStatus === 'disconnected' ? 'text-severity-critical font-medium' : 'text-accent-blue'
           }>
-            {backendStatus === 'connected' ? 'API: Connected' : backendStatus === 'disconnected' ? 'API: Disconnected' : 'API: Checking...'}
+            {systemStatus === 'connected' ? 'API: Connected' :
+             systemStatus === 'degraded' ? 'API: Degraded' :
+             systemStatus === 'disconnected' ? 'API: Disconnected' : 'API: Checking...'}
           </span>
         </div>
 

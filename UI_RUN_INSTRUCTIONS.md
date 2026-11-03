@@ -77,7 +77,7 @@ The production build is at `frontend/dist/`. It can also be served by any static
 
 | Role | Username | Password |
 |---|---|---|
-| Administrator | `phase8_admin` | `Phase8AdminSecure123!` |
+| Administrator | `phase8_admin` | [Configured via CIVICOS_TEST_PASSWORD / init_admin.py] |
 | Viewer (read-only) | `phase8_viewer` | `Phase8ViewerSecure123!` |
 
 > Administrators can submit incidents, manage work orders, and access all features.  
@@ -197,7 +197,7 @@ taskkill /PID <PID> /F
 3. Clear browser localStorage: F12 → Application → Local Storage → Clear
 
 ### Login fails with 401
-- Use the verified credentials: `phase8_admin` / `Phase8AdminSecure123!`
+- Use the verified credentials: `phase8_admin` / [Configured via CIVICOS_TEST_PASSWORD / init_admin.py]
 - Do **not** use `civicadmin` — that account's password is different
 
 ### 3D city map shows nothing

@@ -13,6 +13,7 @@ import {
   NormalizedWorkOrder 
 } from '../lib/api'
 import { KPICard, Card, Badge, SeverityBadge, LoadingState, Button, SectionHeader } from '../components/ui'
+import { useSystemHealth } from '../contexts/HealthContext'
 import CityScene3D from '../components/city/CityScene3D'
 import { 
   Activity, 
@@ -71,6 +72,7 @@ export type OverallSystemStatus = 'connected' | 'degraded' | 'disconnected' | 'c
 
 export default function Dashboard() {
   const navigate = useNavigate()
+  const { setTelemetryReport } = useSystemHealth()
 
   // Telemetry & Data States
   const [health, setHealth] = useState<HealthData | null>(null)
@@ -133,40 +135,49 @@ export default function Dashboard() {
     const nowStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     setLastAttemptTime(nowStr)
 
-    setServices({
+    const loadingStates: ServiceStates = {
       health: 'loading',
       summary: 'loading',
       incidents: 'loading',
       hotspots: 'loading',
       workOrders: 'loading',
-    })
+    }
+    setServices(loadingStates)
+    setTelemetryReport(loadingStates, lastSyncTime, nowStr)
 
     let anySuccess = false
+    const finalStates: ServiceStates = {
+      health: 'idle',
+      summary: 'idle',
+      incidents: 'idle',
+      hotspots: 'idle',
+      workOrders: 'idle',
+    }
 
     // 1. Health API
     const pHealth = healthAPI.health()
       .then((res) => {
         setHealth(res.data)
-        setServices((prev) => ({ ...prev, health: 'success' }))
+        setServices((prev) => ({ ...prev, health: 'success' })); finalStates.health = 'success'
         anySuccess = true
       })
       .catch((err) => {
         console.warn('[Telemetry] /health error:', err.message)
         setHealth(null)
-        setServices((prev) => ({ ...prev, health: 'error' }))
+        setServices((prev) => ({ ...prev, health: 'error' })); finalStates.health = 'error'
       })
 
     // 2. Incidents Summary API
     const pSummary = healthAPI.summary()
       .then((res) => {
         setSummary(res.data)
-        setServices((prev) => ({ ...prev, summary: 'success' }))
+        setServices((prev) => ({ ...prev, summary: 'success' })); finalStates.summary = 'success'
         anySuccess = true
       })
       .catch((err) => {
         console.warn('[Telemetry] /api/incidents/summary error:', err.message)
         setSummary(null)
-        setServices((prev) => ({ ...prev, summary: 'error' }))
+        setServices((prev) => ({ ...prev, summary: 'error' })); finalStates.summary = 'error'
       })
 
     // 3. Incidents List API
@@ -178,13 +189,13 @@ export default function Dashboard() {
         if (norm.length > 0 && !selectedIncident) {
           setSelectedIncident(norm[0])
         }
-        setServices((prev) => ({ ...prev, incidents: 'success' }))
+        setServices((prev) => ({ ...prev, incidents: 'success' })); finalStates.incidents = 'success'
         anySuccess = true
       })
       .catch((err) => {
         console.warn('[Telemetry] /api/incidents error:', err.message)
         setIncidents([])
-        setServices((prev) => ({ ...prev, incidents: 'error' }))
+        setServices((prev) => ({ ...prev, incidents: 'error' })); finalStates.incidents = 'error'
       })
 
     // 4. Geospatial Hotspots API
@@ -192,13 +203,13 @@ export default function Dashboard() {
       .then((res) => {
         const raw = res.data?.hotspots ?? []
         setHotspots(raw.map(normalizeHotspot))
-        setServices((prev) => ({ ...prev, hotspots: 'success' }))
+        setServices((prev) => ({ ...prev, hotspots: 'success' })); finalStates.hotspots = 'success'
         anySuccess = true
       })
       .catch((err) => {
         console.warn('[Telemetry] /api/geospatial/hotspots error:', err.message)
         setHotspots([])
-        setServices((prev) => ({ ...prev, hotspots: 'error' }))
+        setServices((prev) => ({ ...prev, hotspots: 'error' })); finalStates.hotspots = 'error'
       })
 
     // 5. Work Orders API
@@ -206,13 +217,13 @@ export default function Dashboard() {
       .then((res) => {
         const raw = res.data?.data ?? (Array.isArray(res.data) ? res.data : [])
         setWorkOrders(raw.map(normalizeWorkOrder))
-        setServices((prev) => ({ ...prev, workOrders: 'success' }))
+        setServices((prev) => ({ ...prev, workOrders: 'success' })); finalStates.workOrders = 'success'
         anySuccess = true
       })
       .catch((err) => {
         console.warn('[Telemetry] /api/work-orders error:', err.message)
         setWorkOrders([])
-        setServices((prev) => ({ ...prev, workOrders: 'error' }))
+        setServices((prev) => ({ ...prev, workOrders: 'error' })); finalStates.workOrders = 'error'
       })
 
     await Promise.allSettled([pHealth, pSummary, pIncidents, pHotspots, pWorkOrders])
@@ -220,6 +231,7 @@ export default function Dashboard() {
     if (anySuccess) {
       setLastSyncTime(nowStr)
     }
+    setTelemetryReport(finalStates, anySuccess ? nowStr : lastSyncTime, nowStr)
   }, [selectedIncident])
 
   useEffect(() => {
@@ -326,8 +338,8 @@ export default function Dashboard() {
     return 'N/A'
   }, [services.workOrders, workOrders])
 
-  // 6. Prevention Opportunities
-  const kpiPreventionOpps: string | number = useMemo(() => {
+  // 6. Cascading Risk Events (Incidents with cascading_risk_flag == 1)
+  const kpiCascadingEvents: string | number = useMemo(() => {
     if (services.summary === 'success' && summary?.cascading_events_count !== undefined) {
       return summary.cascading_events_count
     }
@@ -569,10 +581,10 @@ export default function Dashboard() {
           color="purple"
         />
         <KPICard
-          title="Prevention Opps"
-          value={kpiPreventionOpps}
-          subtitle={services.summary === 'success' ? 'Simulated paths' : 'Awaiting sync'}
-          icon={<ShieldCheck size={20} />}
+          title="Cascading Events"
+          value={kpiCascadingEvents}
+          subtitle={services.summary === 'success' ? 'Cross-infrastructure' : 'Awaiting sync'}
+          icon={<TrendingUp size={20} />}
           color="low"
         />
       </div>

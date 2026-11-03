@@ -35,6 +35,14 @@ class AuthService:
         if role not in ROLES or len(username) < 3 or len(password) < 12: raise ValueError("Username, password, or role is invalid.")
         with self._connect() as conn:
             conn.execute("INSERT INTO users (username, password_hash, role, created_at, disabled) VALUES (?, ?, ?, ?, 0)", (username.casefold(), hash_password(password), role, _now().isoformat()))
+    def update_password(self, username: str, new_password: str) -> None:
+        if len(new_password) < 12: raise ValueError("Password must be at least 12 characters.")
+        with self._connect() as conn:
+            user = conn.execute("SELECT id FROM users WHERE username = ?", (username.casefold(),)).fetchone()
+            if not user: raise ValueError(f"User '{username}' does not exist.")
+            conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (hash_password(new_password), user["id"]))
+            conn.execute("UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", (_now().isoformat(), user["id"]))
+            conn.execute("INSERT INTO lifecycle_history (entity_type, entity_id, event_type, created_at, details_json) VALUES (?, ?, ?, ?, ?)", ("security", str(user["id"]), "password_rotated", _now().isoformat(), "{}"))
     def login(self, username: str, password: str, client_key: str = "local") -> Optional[dict]:
         # Scope throttling to a client/user pair so unrelated legitimate users are not locked out.
         attempt_key = f"{client_key}:{username.casefold()}"

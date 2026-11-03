@@ -36,7 +36,7 @@ CivicOS enforces role-based access control (RBAC). Use the pre-configured munici
 
 | Role | Username | Password | Permissions |
 | :--- | :--- | :--- | :--- |
-| **Administrator** | `phase8_admin` | `Phase8AdminSecure123!` | Full access: View all telemetry, assign work orders, resolve work orders, run all simulations |
+| **Administrator** | `phase8_admin` | [Configured via CIVICOS_TEST_PASSWORD / init_admin.py] | Full access: View all telemetry, assign work orders, resolve work orders, run all simulations |
 | **Department Operator** | `phase6_operator` | `Phase6-secure-password-42` | Operational access: Incident intake, resolve assigned work orders |
 | **Municipal Viewer** | `phase8_viewer` | `Phase8ViewerSecure123!` | Read-only access: View dashboards, 3D city map, and intelligence features |
 

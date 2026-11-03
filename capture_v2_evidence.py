@@ -49,7 +49,7 @@ def main():
         page.goto(f"{BASE_URL}/login")
         page.wait_for_selector("input[type='password']", timeout=15000)
         page.fill("input[type='text']", "phase8_admin")
-        page.fill("input[type='password']", "Phase8AdminSecure123!")
+        test_pass = os.getenv("CIVICOS_TEST_PASSWORD", ""); page.fill("input[type='password']", test_pass)
         page.click("button[type='submit']")
         page.wait_for_url(f"{BASE_URL}/", timeout=15000)
         time.sleep(3)

@@ -5,7 +5,7 @@
 **Frontend URL:** `http://localhost:5173`  
 **Backend URL:** `http://localhost:8000`  
 **Browser:** Chromium (Playwright headless)  
-**Demo credentials:** `phase8_admin` / `Phase8AdminSecure123!`  
+**Demo credentials:** `phase8_admin` / [Configured via CIVICOS_TEST_PASSWORD / init_admin.py]  
 
 All screenshots are located at:  
 `C:\Projects\CivicOS\CivicOS_Person3\release_evidence\ui_redesign\`

@@ -119,7 +119,7 @@ def run_browser_validation():
                 pass_input = page.locator("input[aria-label='Password']")
                 if user_input.count() > 0 and pass_input.count() > 0:
                     user_input.fill("phase8_admin")
-                    pass_input.fill("Phase8AdminSecure123!")
+                    test_pass = os.getenv("CIVICOS_TEST_PASSWORD", ""); pass_input.fill(test_pass)
                     login_btn = page.locator("button:has-text('Log in')")
                     if login_btn.count() > 0:
                         login_btn.click()

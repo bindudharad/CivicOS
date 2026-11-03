@@ -1,6 +1,7 @@
 import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { HealthProvider } from './contexts/HealthContext'
 import Layout from './components/layout/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -47,69 +48,71 @@ function ProtectedRoute({ children }: { children: React.ReactElement }) {
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <CommandPalette />
-        <Routes>
-          <Route path="/login" element={<Login />} />
+      <HealthProvider>
+        <BrowserRouter>
+          <CommandPalette />
+          <Routes>
+            <Route path="/login" element={<Login />} />
 
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <Layout />
-              </ProtectedRoute>
-            }
-          >
-            <Route index element={<Dashboard />} />
-            <Route path="map" element={<LiveMap />} />
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute>
+                  <Layout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<Dashboard />} />
+              <Route path="map" element={<LiveMap />} />
 
-            {/* Feature 1 */}
-            <Route path="features/relationship-graph" element={<RelationshipGraph />} />
-            <Route path="features/graph" element={<RelationshipGraph />} />
+              {/* Feature 1 */}
+              <Route path="features/relationship-graph" element={<RelationshipGraph />} />
+              <Route path="features/graph" element={<RelationshipGraph />} />
 
-            {/* Feature 2 */}
-            <Route path="features/geospatial" element={<GeospatialIntelligence />} />
+              {/* Feature 2 */}
+              <Route path="features/geospatial" element={<GeospatialIntelligence />} />
 
-            {/* Feature 3 */}
-            <Route path="features/predictive-ml" element={<PredictiveML />} />
-            <Route path="features/predictive" element={<PredictiveML />} />
+              {/* Feature 3 */}
+              <Route path="features/predictive-ml" element={<PredictiveML />} />
+              <Route path="features/predictive" element={<PredictiveML />} />
 
-            {/* Feature 4 */}
-            <Route path="features/cascading-impact" element={<CascadingImpact />} />
-            <Route path="features/cascade" element={<CascadingImpact />} />
+              {/* Feature 4 */}
+              <Route path="features/cascading-impact" element={<CascadingImpact />} />
+              <Route path="features/cascade" element={<CascadingImpact />} />
 
-            {/* Feature 5 */}
-            <Route path="features/impact-severity" element={<ImpactSeverity />} />
-            <Route path="features/impact" element={<ImpactSeverity />} />
+              {/* Feature 5 */}
+              <Route path="features/impact-severity" element={<ImpactSeverity />} />
+              <Route path="features/impact" element={<ImpactSeverity />} />
 
-            {/* Feature 6 */}
-            <Route path="features/smart-priority" element={<SmartPriority />} />
-            <Route path="features/priority" element={<SmartPriority />} />
+              {/* Feature 6 */}
+              <Route path="features/smart-priority" element={<SmartPriority />} />
+              <Route path="features/priority" element={<SmartPriority />} />
 
-            {/* Feature 7 */}
-            <Route path="features/what-if" element={<WhatIfSimulation />} />
-            <Route path="features/whatif" element={<WhatIfSimulation />} />
+              {/* Feature 7 */}
+              <Route path="features/what-if" element={<WhatIfSimulation />} />
+              <Route path="features/whatif" element={<WhatIfSimulation />} />
 
-            {/* Feature 8 */}
-            <Route path="features/recommendations" element={<PreventiveRecommendations />} />
+              {/* Feature 8 */}
+              <Route path="features/recommendations" element={<PreventiveRecommendations />} />
 
-            {/* Feature 9 */}
-            <Route path="features/prevention-impact" element={<PreventionImpact />} />
-            <Route path="features/prevention" element={<PreventionImpact />} />
+              {/* Feature 9 */}
+              <Route path="features/prevention-impact" element={<PreventionImpact />} />
+              <Route path="features/prevention" element={<PreventionImpact />} />
 
-            {/* Feature 10 */}
-            <Route path="features/weather-risk" element={<WeatherRisk />} />
-            <Route path="features/weather" element={<WeatherRisk />} />
+              {/* Feature 10 */}
+              <Route path="features/weather-risk" element={<WeatherRisk />} />
+              <Route path="features/weather" element={<WeatherRisk />} />
 
-            {/* Operations */}
-            <Route path="operations/incidents" element={<IncidentIntake />} />
-            <Route path="operations/intake" element={<IncidentIntake />} />
-            <Route path="operations/work-orders" element={<WorkOrders />} />
-          </Route>
+              {/* Operations */}
+              <Route path="operations/incidents" element={<IncidentIntake />} />
+              <Route path="operations/intake" element={<IncidentIntake />} />
+              <Route path="operations/work-orders" element={<WorkOrders />} />
+            </Route>
 
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </BrowserRouter>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </HealthProvider>
     </AuthProvider>
   )
 }

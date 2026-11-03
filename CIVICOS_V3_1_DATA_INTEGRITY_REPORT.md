@@ -27,7 +27,7 @@ All 3 telemetry scenario tests (Populated, Zero-Database, and Backend Disconnect
 | **Critical Alerts** | `summary?.critical_incidents_count ?? 66` | Computed directly from confirmed `summary.critical_incidents_count` or `incidents.filter(sev >= 8.0).length`; returns 0 if none; `N/A` if endpoint down. | Rule 1 & 2: Never substitutes `66` when zero or disconnected. |
 | **High-Risk Zones** | `hotspots.length \|\| 8` | `services.hotspots === 'success' ? hotspots.length : services.hotspots === 'loading' ? '—' : 'N/A'` | Rule 1: Zero DBSCAN clusters display as `0`, never fabricated as `8`. |
 | **Active Work Orders** | `rawWo.length \|\| 36`, `workOrderCount \|\| 36`, initial state `36` | Initial state `[]`. Computed from confirmed `workOrders.filter(w => w.status !== 'resolved').length`; returns `0` if empty; `N/A` if endpoint down. | Rule 1 & 2: Never defaults to or falls back to `36`. |
-| **Prevention Opps** | `summary?.cascading_events_count ?? 93` | `services.summary === 'success' ? summary.cascading_events_count : services.summary === 'loading' ? '—' : 'N/A'` | Rule 1: Zero cascading events displays as `0`, never `93`. |
+| **Cascading Events (formerly Prevention Opps)** | `summary?.cascading_events_count ?? 93` | `services.summary === 'success' ? summary.cascading_events_count : services.summary === 'loading' ? '—' : 'N/A'` | Rule 1: Zero cascading events displays as `0`, never `93`. Renamed in V3.1.1 to reflect actual semantic meaning (`cascading_risk_flag == 1`). |
 
 ### 2.2 Dynamic API Health Status State Machine
 - **Previous behavior:** Displayed a hardcoded static label: `API Health: LIVE` regardless of whether the backend was healthy, offline, or throwing 500 errors.

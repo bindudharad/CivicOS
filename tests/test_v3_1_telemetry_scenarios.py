@@ -1,16 +1,26 @@
 """
-CivicOS V3.1 Telemetry Data Integrity Scenario Tests
+CivicOS V3.1.1 Telemetry Data Integrity Scenario Tests
 Tests three critical telemetry conditions in Chromium:
   Scenario A: Populated live database (All real metrics rendered)
-  Scenario B: Empty database (All confirmed metrics render 0, ZERO fallback numbers)
+  Scenario B: Empty API Response Scenario (Frontend renders 0, ZERO fallback numbers)
   Scenario C: Disconnected backend (API: DISCONNECTED badge, N/A metrics, zero LIVE flags)
+
+Security:
+  - Uses CIVICOS_TEST_USERNAME and CIVICOS_TEST_PASSWORD environment variables if configured.
+  - Otherwise provisions a disposable, isolated test administrator via AuthService.
+  - Zero hardcoded credentials in source control.
 """
+import os
+import secrets
 import pytest
-import re
 import time
 from playwright.sync_api import sync_playwright
 
+from src.config import OPERATIONS_DB_PATH
+from src.security.auth import AuthService
+
 BASE_URL = "http://127.0.0.1:5173"
+
 
 @pytest.fixture(scope="module")
 def browser_context():
@@ -28,22 +38,58 @@ def browser_context():
         yield context
         browser.close()
 
-def login_if_needed(page):
+
+@pytest.fixture(scope="module")
+def test_admin_credentials():
+    """
+    Secure credential provider for telemetry scenario testing.
+    1. Checks environment variables CIVICOS_TEST_USERNAME and CIVICOS_TEST_PASSWORD.
+    2. If not set, provisions a disposable ephemeral test administrator account
+       directly via AuthService with a cryptographically generated password,
+       and disables/removes it during teardown.
+    Never prints or hardcodes credentials.
+    """
+    env_user = os.getenv("CIVICOS_TEST_USERNAME")
+    env_pass = os.getenv("CIVICOS_TEST_PASSWORD")
+    if env_user and env_pass:
+        yield {"username": env_user, "password": env_pass}
+        return
+
+    # Provision disposable ephemeral test administrator
+    disposable_user = f"disposable_adm_{secrets.token_hex(4)}"
+    disposable_pass = secrets.token_urlsafe(20) + "Aa1!"
+    auth_service = AuthService(OPERATIONS_DB_PATH)
+    auth_service.create_user(disposable_user, disposable_pass, "administrator")
+
+    try:
+        yield {"username": disposable_user, "password": disposable_pass}
+    finally:
+        # Secure cleanup: disable and revoke disposable test user
+        try:
+            with auth_service._connect() as conn:
+                conn.execute("UPDATE users SET disabled = 1 WHERE username = ?", (disposable_user.casefold(),))
+                conn.execute("DELETE FROM users WHERE username = ?", (disposable_user.casefold(),))
+        except Exception:
+            pass
+
+
+def login_if_needed(page, creds):
     page.goto(f"{BASE_URL}/login")
     try:
         page.wait_for_selector("input[type='password']", timeout=3000)
-        page.fill("input[type='text']", "phase8_admin")
-        page.fill("input[type='password']", "Phase8AdminSecure123!")
+        page.fill("input[type='text']", creds["username"])
+        page.fill("input[type='password']", creds["password"])
         page.click("button[type='submit']")
         page.wait_for_url(f"{BASE_URL}/", timeout=10000)
     except Exception:
         # Already logged in
         pass
 
-def test_scenario_a_populated_database(browser_context):
+
+def test_scenario_a_populated_database(browser_context, test_admin_credentials):
     """Scenario A: Live populated backend - all real values rendered."""
     page = browser_context.new_page()
-    login_if_needed(page)
+    login_if_needed(page, test_admin_credentials)
 
     page.goto(f"{BASE_URL}/")
     page.wait_for_load_state("networkidle", timeout=10000)
@@ -75,14 +121,23 @@ def test_scenario_a_populated_database(browser_context):
     hotspot_val = page.get_by_test_id("kpi-high-risk-zones-value").inner_text().strip()
     assert hotspot_val not in ["N/A", "—"], f"Hotspots must be resolved, got: {hotspot_val}"
 
+    # 7. Cascading Events should be confirmed count (93)
+    cascade_val = page.get_by_test_id("kpi-cascading-events-value").inner_text().strip()
+    assert "93" in cascade_val, f"Expected 93 cascading events, got: {cascade_val}"
+
     page.close()
 
-def test_scenario_b_empty_database(browser_context):
-    """Scenario B: Confirmed empty database - must display 0, NEVER fabricated numbers (89, 8, 36, 93, 125)."""
-    page = browser_context.new_page()
-    login_if_needed(page)
 
-    # Intercept API calls to simulate empty municipal database
+def test_scenario_b_empty_api_response(browser_context, test_admin_credentials):
+    """
+    Scenario B: Empty API Response Scenario
+    Simulates empty municipal API responses to verify frontend displays 0 and
+    ZERO fabricated fallback numbers (89, 8, 36, 93, 125).
+    """
+    page = browser_context.new_page()
+    login_if_needed(page, test_admin_credentials)
+
+    # Intercept API calls to simulate empty municipal API response payload
     page.route("**/health", lambda route: route.fulfill(
         status=200,
         content_type="application/json",
@@ -140,17 +195,18 @@ def test_scenario_b_empty_database(browser_context):
     assert wo_val == "0", f"Active Work Orders must be '0', got '{wo_val}'"
     assert "36" not in wo_val, "Active Work Orders must NOT fall back to 36!"
 
-    # 7. Prevention Opportunities must be strictly 0 (NOT 93)
-    prev_val = page.get_by_test_id("kpi-prevention-opps-value").inner_text().strip()
-    assert prev_val == "0", f"Prevention Opps must be '0', got '{prev_val}'"
-    assert "93" not in prev_val, "Prevention Opps must NOT fall back to 93!"
+    # 7. Cascading Events must be strictly 0 (NOT 93)
+    cascade_val = page.get_by_test_id("kpi-cascading-events-value").inner_text().strip()
+    assert cascade_val == "0", f"Cascading Events must be '0', got '{cascade_val}'"
+    assert "93" not in cascade_val, "Cascading Events must NOT fall back to 93!"
 
     page.close()
 
-def test_scenario_c_backend_disconnected(browser_context):
+
+def test_scenario_c_backend_disconnected(browser_context, test_admin_credentials):
     """Scenario C: Backend disconnected - must show Disconnected badge and N/A metrics, NEVER LIVE."""
     page = browser_context.new_page()
-    login_if_needed(page)
+    login_if_needed(page, test_admin_credentials)
 
     # Abort all backend network calls
     page.route("**/health", lambda route: route.abort())
