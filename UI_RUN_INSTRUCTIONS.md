@@ -1,7 +1,7 @@
 # CivicOS — UI Run Instructions
 ## Next-Generation 3D Urban Intelligence Command Center
 
-**Frontend stack:** React 18 · TypeScript · Vite 6 · Three.js · Tailwind CSS · Framer Motion  
+**Frontend stack:** React 19.3.1 · TypeScript · Vite 8 · Three.js · Tailwind CSS · Framer Motion  
 **Backend stack:** FastAPI · SQLite · Python 3.10 · scikit-learn · NetworkX  
 
 ---
@@ -212,7 +212,7 @@ taskkill /PID <PID> /F
 ```
 Browser (http://localhost:5173)
     │
-    ├── React 18 + React Router v6
+    ├── React 19.3.1 + React Router v7
     ├── Three.js (WebGL 3D City Visualization)
     ├── Framer Motion (UI Animations)
     ├── Tailwind CSS (Dark Design System)

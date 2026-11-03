@@ -1,6 +1,17 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { healthAPI, incidentsAPI, geoAPI, workOrdersAPI, normalizeIncident, normalizeHotspot, NormalizedIncident, NormalizedHotspot } from '../lib/api'
+import { 
+  healthAPI, 
+  incidentsAPI, 
+  geoAPI, 
+  workOrdersAPI, 
+  normalizeIncident, 
+  normalizeHotspot,
+  normalizeWorkOrder,
+  NormalizedIncident, 
+  NormalizedHotspot,
+  NormalizedWorkOrder 
+} from '../lib/api'
 import { KPICard, Card, Badge, SeverityBadge, LoadingState, Button, SectionHeader } from '../components/ui'
 import CityScene3D from '../components/city/CityScene3D'
 import { 
@@ -21,7 +32,11 @@ import {
   Clock,
   Sparkles,
   ChevronRight,
-  ShieldAlert
+  ShieldAlert,
+  AlertCircle,
+  CheckCircle2,
+  XCircle,
+  HelpCircle
 } from 'lucide-react'
 
 interface HealthData {
@@ -42,62 +57,176 @@ interface SummaryData {
   cascading_events_count?: number
 }
 
+type ServiceStatus = 'idle' | 'loading' | 'success' | 'error'
+
+interface ServiceStates {
+  health: ServiceStatus
+  summary: ServiceStatus
+  incidents: ServiceStatus
+  hotspots: ServiceStatus
+  workOrders: ServiceStatus
+}
+
+export type OverallSystemStatus = 'connected' | 'degraded' | 'disconnected' | 'checking'
+
 export default function Dashboard() {
   const navigate = useNavigate()
 
+  // Telemetry & Data States
   const [health, setHealth] = useState<HealthData | null>(null)
   const [summary, setSummary] = useState<SummaryData | null>(null)
   const [incidents, setIncidents] = useState<NormalizedIncident[]>([])
   const [hotspots, setHotspots] = useState<NormalizedHotspot[]>([])
-  const [workOrderCount, setWorkOrderCount] = useState<number>(36)
+  const [workOrders, setWorkOrders] = useState<NormalizedWorkOrder[]>([])
   const [selectedIncident, setSelectedIncident] = useState<NormalizedIncident | null>(null)
 
-  const [loading, setLoading] = useState(true)
+  // Per-Endpoint Status Tracking (No silent failures)
+  const [services, setServices] = useState<ServiceStates>({
+    health: 'idle',
+    summary: 'idle',
+    incidents: 'idle',
+    hotspots: 'idle',
+    workOrders: 'idle',
+  })
+
+  // Synchronization Timestamps
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null)
+  const [lastAttemptTime, setLastAttemptTime] = useState<string>('Not yet checked')
+
+  // UI Filters
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedSeverityFilter, setSelectedSeverityFilter] = useState('All')
   const [selectedZoneFilter, setSelectedZoneFilter] = useState('All')
-  const [lastUpdated, setLastUpdated] = useState<string>('Just now')
 
-  const fetchDashboardData = async () => {
-    setLoading(true)
-    try {
-      const [hRes, sRes, incRes, geoRes, woRes] = await Promise.all([
-        healthAPI.health().catch(() => ({ data: null })),
-        healthAPI.summary().catch(() => ({ data: null })),
-        incidentsAPI.list({ limit: 125 }).catch(() => ({ data: [] })),
-        geoAPI.hotspots({ eps_km: 0.8, min_samples: 2 }).catch(() => ({ data: { hotspots: [] } })),
-        workOrdersAPI.list().catch(() => ({ data: { data: [] } })),
-      ])
+  // Calculate Overall System Health Status
+  const systemStatus: OverallSystemStatus = useMemo(() => {
+    if (services.health === 'loading') return 'checking'
+    if (services.health === 'error') return 'disconnected'
 
-      if (hRes.data) setHealth(hRes.data)
-      if (sRes.data) setSummary(sRes.data)
+    const failedSubservices = [services.summary, services.incidents, services.hotspots, services.workOrders].filter(
+      (s) => s === 'error'
+    )
 
-      const rawInc = incRes.data?.data ?? incRes.data?.incidents ?? (Array.isArray(incRes.data) ? incRes.data : [])
-      const norm = rawInc.map(normalizeIncident)
-      setIncidents(norm)
-      if (norm.length > 0 && !selectedIncident) {
-        setSelectedIncident(norm[0])
-      }
+    if (failedSubservices.length > 0) return 'degraded'
+    if (services.health === 'success') return 'connected'
+    return 'checking'
+  }, [services])
 
-      const rawHotspots = geoRes.data?.hotspots ?? []
-      setHotspots(rawHotspots.map(normalizeHotspot))
+  // Is any service currently loading
+  const isRefreshing = useMemo(() => {
+    return Object.values(services).some((s) => s === 'loading')
+  }, [services])
 
-      const rawWo = woRes.data?.data ?? (Array.isArray(woRes.data) ? woRes.data : [])
-      setWorkOrderCount(rawWo.length || 36)
+  // Failed service names for degraded warning
+  const failedServices = useMemo(() => {
+    const list: string[] = []
+    if (services.health === 'error') list.push('Health API')
+    if (services.summary === 'error') list.push('Summary API')
+    if (services.incidents === 'error') list.push('Incidents Registry')
+    if (services.hotspots === 'error') list.push('DBSCAN Hotspots')
+    if (services.workOrders === 'error') list.push('Work Orders Pipeline')
+    return list
+  }, [services])
 
-      setLastUpdated(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
-    } catch (err) {
-      console.error('Error loading command center data', err)
-    } finally {
-      setLoading(false)
+  // Fetch all endpoints with individual lifecycle tracking
+  const fetchDashboardData = useCallback(async () => {
+    const nowStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    setLastAttemptTime(nowStr)
+
+    setServices({
+      health: 'loading',
+      summary: 'loading',
+      incidents: 'loading',
+      hotspots: 'loading',
+      workOrders: 'loading',
+    })
+
+    let anySuccess = false
+
+    // 1. Health API
+    const pHealth = healthAPI.health()
+      .then((res) => {
+        setHealth(res.data)
+        setServices((prev) => ({ ...prev, health: 'success' }))
+        anySuccess = true
+      })
+      .catch((err) => {
+        console.warn('[Telemetry] /health error:', err.message)
+        setHealth(null)
+        setServices((prev) => ({ ...prev, health: 'error' }))
+      })
+
+    // 2. Incidents Summary API
+    const pSummary = healthAPI.summary()
+      .then((res) => {
+        setSummary(res.data)
+        setServices((prev) => ({ ...prev, summary: 'success' }))
+        anySuccess = true
+      })
+      .catch((err) => {
+        console.warn('[Telemetry] /api/incidents/summary error:', err.message)
+        setSummary(null)
+        setServices((prev) => ({ ...prev, summary: 'error' }))
+      })
+
+    // 3. Incidents List API
+    const pIncidents = incidentsAPI.list({ limit: 150 })
+      .then((res) => {
+        const raw = res.data?.data ?? res.data?.incidents ?? (Array.isArray(res.data) ? res.data : [])
+        const norm = raw.map(normalizeIncident)
+        setIncidents(norm)
+        if (norm.length > 0 && !selectedIncident) {
+          setSelectedIncident(norm[0])
+        }
+        setServices((prev) => ({ ...prev, incidents: 'success' }))
+        anySuccess = true
+      })
+      .catch((err) => {
+        console.warn('[Telemetry] /api/incidents error:', err.message)
+        setIncidents([])
+        setServices((prev) => ({ ...prev, incidents: 'error' }))
+      })
+
+    // 4. Geospatial Hotspots API
+    const pHotspots = geoAPI.hotspots({ eps_km: 0.8, min_samples: 2 })
+      .then((res) => {
+        const raw = res.data?.hotspots ?? []
+        setHotspots(raw.map(normalizeHotspot))
+        setServices((prev) => ({ ...prev, hotspots: 'success' }))
+        anySuccess = true
+      })
+      .catch((err) => {
+        console.warn('[Telemetry] /api/geospatial/hotspots error:', err.message)
+        setHotspots([])
+        setServices((prev) => ({ ...prev, hotspots: 'error' }))
+      })
+
+    // 5. Work Orders API
+    const pWorkOrders = workOrdersAPI.list()
+      .then((res) => {
+        const raw = res.data?.data ?? (Array.isArray(res.data) ? res.data : [])
+        setWorkOrders(raw.map(normalizeWorkOrder))
+        setServices((prev) => ({ ...prev, workOrders: 'success' }))
+        anySuccess = true
+      })
+      .catch((err) => {
+        console.warn('[Telemetry] /api/work-orders error:', err.message)
+        setWorkOrders([])
+        setServices((prev) => ({ ...prev, workOrders: 'error' }))
+      })
+
+    await Promise.allSettled([pHealth, pSummary, pIncidents, pHotspots, pWorkOrders])
+
+    if (anySuccess) {
+      setLastSyncTime(nowStr)
     }
-  }
+  }, [selectedIncident])
 
   useEffect(() => {
     fetchDashboardData()
   }, [])
 
-  // Filtered Incidents
+  // Filtered Incidents based on search, zone, severity
   const filteredIncidents = useMemo(() => {
     return incidents.filter((inc) => {
       const matchesSearch =
@@ -117,17 +246,190 @@ export default function Dashboard() {
     })
   }, [incidents, searchQuery, selectedZoneFilter, selectedSeverityFilter])
 
-  // Top Critical / High Priority Feed (first 5 critical/high incidents)
+  // Top Critical / High Priority Feed from live incidents
   const priorityFeed = useMemo(() => {
     return incidents
       .filter((i) => (i.severity ?? 0) >= 6.0)
       .slice(0, 6)
   }, [incidents])
 
-  const formatDate = (isoString: string) => {
+  // ─── STRICT VERIFIED KPI VALUE COMPUTATIONS ────────────────────────────────
+  // Rule: Show 0 only when confirmed zero. Show "—" or "N/A" when unavailable. Never fallback to hardcoded numbers!
+
+  // 1. Total Incidents
+  const kpiTotalIncidents: string | number = useMemo(() => {
+    if (services.summary === 'success' && summary?.total_records !== undefined) {
+      return summary.total_records
+    }
+    if (services.health === 'success' && health?.records_loaded !== undefined) {
+      return health.records_loaded
+    }
+    if (services.incidents === 'success') {
+      return incidents.length
+    }
+    if (services.summary === 'loading' || services.health === 'loading' || services.incidents === 'loading') {
+      return '—'
+    }
+    return 'N/A'
+  }, [services, summary, health, incidents])
+
+  // 2. Active Incidents
+  const kpiActiveIncidents: string | number = useMemo(() => {
+    if (services.incidents === 'success') {
+      return incidents.filter((i) => i.status !== 'resolved' && i.status !== 'mitigated').length
+    }
+    if (services.summary === 'success' && summary?.statuses) {
+      const nonResolved = Object.entries(summary.statuses)
+        .filter(([status]) => status.toLowerCase() !== 'resolved' && status.toLowerCase() !== 'mitigated')
+        .reduce((sum, [, count]) => sum + count, 0)
+      return nonResolved
+    }
+    if (services.incidents === 'loading' || services.summary === 'loading') {
+      return '—'
+    }
+    return 'N/A'
+  }, [services, incidents, summary])
+
+  // 3. Critical Alerts
+  const kpiCriticalAlerts: string | number = useMemo(() => {
+    if (services.summary === 'success' && summary?.critical_incidents_count !== undefined) {
+      return summary.critical_incidents_count
+    }
+    if (services.incidents === 'success') {
+      return incidents.filter((i) => (i.severity ?? 0) >= 8.0).length
+    }
+    if (services.summary === 'loading' || services.incidents === 'loading') {
+      return '—'
+    }
+    return 'N/A'
+  }, [services, summary, incidents])
+
+  // 4. High-Risk Zones (Hotspots)
+  const kpiHighRiskZones: string | number = useMemo(() => {
+    if (services.hotspots === 'success') {
+      return hotspots.length
+    }
+    if (services.hotspots === 'loading') {
+      return '—'
+    }
+    return 'N/A'
+  }, [services.hotspots, hotspots])
+
+  // 5. Active Work Orders
+  const kpiActiveWorkOrders: string | number = useMemo(() => {
+    if (services.workOrders === 'success') {
+      return workOrders.filter((w) => w.status !== 'resolved').length
+    }
+    if (services.workOrders === 'loading') {
+      return '—'
+    }
+    return 'N/A'
+  }, [services.workOrders, workOrders])
+
+  // 6. Prevention Opportunities
+  const kpiPreventionOpps: string | number = useMemo(() => {
+    if (services.summary === 'success' && summary?.cascading_events_count !== undefined) {
+      return summary.cascading_events_count
+    }
+    if (services.summary === 'loading') {
+      return '—'
+    }
+    return 'N/A'
+  }, [services.summary, summary])
+
+  // ─── DYNAMIC CATEGORY BREAKDOWN ───────────────────────────────────────────
+  const dynamicCategories = useMemo(() => {
+    if (services.summary === 'success' && summary?.categories) {
+      const entries = Object.entries(summary.categories)
+      const total = entries.reduce((sum, [, count]) => sum + count, 0)
+      if (total === 0) return []
+      return entries.map(([label, count]) => ({
+        label,
+        count,
+        pct: `${Math.round((count / total) * 100)}%`,
+      }))
+    }
+    if (services.incidents === 'success' && incidents.length > 0) {
+      const counts: Record<string, number> = {}
+      incidents.forEach((inc) => {
+        const cat = inc.category || inc.incident_type || 'General'
+        counts[cat] = (counts[cat] || 0) + 1
+      })
+      const total = incidents.length
+      return Object.entries(counts).map(([label, count]) => ({
+        label,
+        count,
+        pct: `${Math.round((count / total) * 100)}%`,
+      }))
+    }
+    return []
+  }, [services, summary, incidents])
+
+  // ─── DYNAMIC ZONE RISK DISTRIBUTION ───────────────────────────────────────
+  const dynamicZones = useMemo(() => {
+    if (services.summary === 'success' && summary?.zones) {
+      const entries = Object.entries(summary.zones)
+      const maxCount = Math.max(...entries.map(([, c]) => c), 1)
+      return entries.map(([zone, count]) => {
+        const pct = `${Math.round((count / maxCount) * 100)}%`
+        let risk = 'Low'
+        let color = 'text-accent-turquoise'
+        let bar = 'bg-accent-turquoise'
+        if (count >= 25) {
+          risk = 'Critical'
+          color = 'text-severity-critical'
+          bar = 'bg-severity-critical'
+        } else if (count >= 20) {
+          risk = 'High'
+          color = 'text-severity-high'
+          bar = 'bg-severity-high'
+        } else if (count >= 10) {
+          risk = 'Moderate'
+          color = 'text-severity-medium'
+          bar = 'bg-severity-medium'
+        }
+        return { zone, count, risk, color, bar, pct }
+      })
+    }
+    if (services.incidents === 'success' && incidents.length > 0) {
+      const counts: Record<string, number> = {}
+      incidents.forEach((inc) => {
+        counts[inc.zone] = (counts[inc.zone] || 0) + 1
+      })
+      const entries = Object.entries(counts)
+      const maxCount = Math.max(...entries.map(([, c]) => c), 1)
+      return entries.map(([zone, count]) => {
+        const pct = `${Math.round((count / maxCount) * 100)}%`
+        return {
+          zone,
+          count,
+          risk: count > 20 ? 'Critical' : count > 10 ? 'High' : 'Moderate',
+          color: count > 20 ? 'text-severity-critical' : 'text-severity-high',
+          bar: count > 20 ? 'bg-severity-critical' : 'bg-severity-high',
+          pct,
+        }
+      })
+    }
+    return []
+  }, [services, summary, incidents])
+
+  // ─── DYNAMIC WORK ORDER PIPELINE METRICS ──────────────────────────────────
+  const dynamicWorkOrderStats = useMemo(() => {
+    if (services.workOrders !== 'success') {
+      return { total: '—', inProgress: '—', open: '—', resolved: '—' }
+    }
+    const total = workOrders.length
+    const inProgress = workOrders.filter((w) => w.status === 'in_progress' || w.status === 'assigned').length
+    const open = workOrders.filter((w) => w.status === 'open').length
+    const resolved = workOrders.filter((w) => w.status === 'resolved').length
+    return { total, inProgress, open, resolved }
+  }, [services.workOrders, workOrders])
+
+  const formatDate = (isoString?: string) => {
+    if (!isoString) return '—'
     try {
       const d = new Date(isoString)
-      if (isNaN(d.getTime())) return 'Recently'
+      if (isNaN(d.getTime())) return '—'
       return d.toLocaleDateString('en-IN', {
         month: 'short',
         day: 'numeric',
@@ -135,7 +437,7 @@ export default function Dashboard() {
         minute: '2-digit',
       })
     } catch {
-      return 'Recently'
+      return '—'
     }
   }
 
@@ -149,14 +451,18 @@ export default function Dashboard() {
 
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           <div className="space-y-2 max-w-2xl">
-            <div className="flex items-center gap-2.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-accent-cyan animate-pulse" />
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className={`w-2.5 h-2.5 rounded-full ${
+                systemStatus === 'connected' ? 'bg-accent-turquoise animate-pulse' :
+                systemStatus === 'degraded' ? 'bg-severity-high animate-pulse' :
+                systemStatus === 'disconnected' ? 'bg-severity-critical' : 'bg-accent-blue animate-pulse'
+              }`} />
               <span className="text-xs font-mono font-bold text-accent-cyan tracking-widest uppercase">
                 CIVICOS • URBAN INTELLIGENCE OPERATING SYSTEM
               </span>
               <span className="text-border-standard text-xs">|</span>
               <span className="text-[11px] font-mono text-text-muted flex items-center gap-1">
-                <Clock size={12} /> Sync: {lastUpdated}
+                <Clock size={12} /> Sync: {lastSyncTime ? `${lastSyncTime}` : 'Pending'} (Checked: {lastAttemptTime})
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-text-primary tracking-tight">
@@ -168,10 +474,26 @@ export default function Dashboard() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-bg-midnight/70 border border-border-standard text-xs font-mono">
-              <span className="w-2 h-2 rounded-full bg-accent-turquoise animate-ping" />
-              <span className="text-text-primary font-semibold">API Health: LIVE</span>
+            {/* Dynamic API Health Status Badge */}
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-mono transition-colors ${
+              systemStatus === 'connected'
+                ? 'bg-bg-midnight/70 border-accent-turquoise/40 text-accent-turquoise'
+                : systemStatus === 'degraded'
+                ? 'bg-severity-high/15 border-severity-high/40 text-severity-high'
+                : systemStatus === 'disconnected'
+                ? 'bg-severity-critical/15 border-severity-critical/40 text-severity-critical'
+                : 'bg-bg-midnight/70 border-border-standard text-text-muted'
+            }`}>
+              <span className={`w-2 h-2 rounded-full ${
+                systemStatus === 'connected' ? 'bg-accent-turquoise animate-ping' :
+                systemStatus === 'degraded' ? 'bg-severity-high animate-ping' :
+                systemStatus === 'disconnected' ? 'bg-severity-critical' : 'bg-accent-blue animate-pulse'
+              }`} />
+              <span className="font-semibold uppercase tracking-wider">
+                API: {systemStatus === 'connected' ? 'Connected' : systemStatus === 'degraded' ? 'Degraded' : systemStatus === 'disconnected' ? 'Disconnected' : 'Checking'}
+              </span>
             </div>
+
             <Button
               variant="cyan"
               icon={<Box size={16} />}
@@ -181,56 +503,75 @@ export default function Dashboard() {
             </Button>
             <Button
               variant="secondary"
-              icon={<RefreshCw size={14} className={loading ? 'animate-spin' : ''} />}
+              icon={<RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />}
               onClick={fetchDashboardData}
+              disabled={isRefreshing}
             >
               Sync Telemetry
             </Button>
           </div>
         </div>
+
+        {/* Partial Outage Alert Banner (Only shown if Degraded or Disconnected) */}
+        {systemStatus === 'degraded' && (
+          <div className="mt-4 p-3 rounded-xl bg-severity-high/15 border border-severity-high/30 flex items-center gap-2 text-xs text-severity-high">
+            <AlertCircle size={15} className="flex-shrink-0" />
+            <span>
+              <strong>Partial Telemetry Outage:</strong> Unable to reach {failedServices.join(', ')}. Displaying confirmed data from active endpoints.
+            </span>
+          </div>
+        )}
+        {systemStatus === 'disconnected' && (
+          <div className="mt-4 p-3 rounded-xl bg-severity-critical/15 border border-severity-critical/30 flex items-center gap-2 text-xs text-severity-critical">
+            <XCircle size={15} className="flex-shrink-0" />
+            <span>
+              <strong>Backend Disconnected:</strong> Cannot reach municipal server at {healthAPI ? 'http://127.0.0.1:8000' : 'API host'}. Telemetry values unavailable.
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* ─── 5.2 Six Distinctive KPI Widgets ─────────────────────────────────── */}
+      {/* ─── 5.2 Six Verified KPI Widgets (No Fabricated Fallbacks) ─────────── */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <KPICard
           title="Total Incidents"
-          value={summary?.total_records ?? health?.records_loaded ?? incidents.length ?? 125}
-          subtitle="Across Bengaluru"
+          value={kpiTotalIncidents}
+          subtitle={services.summary === 'success' || services.health === 'success' ? 'Across Bengaluru' : 'Awaiting sync'}
           icon={<Activity size={20} />}
           color="blue"
         />
         <KPICard
           title="Active Incidents"
-          value={incidents.filter((i) => i.status !== 'resolved').length || 89}
-          subtitle="Pending / in-progress"
+          value={kpiActiveIncidents}
+          subtitle={services.incidents === 'success' ? 'Pending / in-progress' : 'Awaiting sync'}
           icon={<Activity size={20} />}
           color="cyan"
         />
         <KPICard
           title="Critical Alerts"
-          value={summary?.critical_incidents_count ?? incidents.filter((i) => (i.severity ?? 0) >= 8.0).length ?? 66}
-          subtitle="Immediate dispatch"
+          value={kpiCriticalAlerts}
+          subtitle={services.summary === 'success' || services.incidents === 'success' ? 'Severity ≥ 8.0' : 'Awaiting sync'}
           icon={<AlertTriangle size={20} />}
           color="critical"
         />
         <KPICard
           title="High-Risk Zones"
-          value={hotspots.length || 8}
-          subtitle="DBSCAN Clusters"
+          value={kpiHighRiskZones}
+          subtitle={services.hotspots === 'success' ? 'DBSCAN Clusters' : 'Awaiting sync'}
           icon={<MapPin size={20} />}
           color="high"
         />
         <KPICard
           title="Active Work Orders"
-          value={workOrderCount || 36}
-          subtitle="Assigned crews"
+          value={kpiActiveWorkOrders}
+          subtitle={services.workOrders === 'success' ? 'Assigned crews' : 'Awaiting sync'}
           icon={<ClipboardList size={20} />}
           color="purple"
         />
         <KPICard
           title="Prevention Opps"
-          value={summary?.cascading_events_count ?? 93}
-          subtitle="Simulated mitigations"
+          value={kpiPreventionOpps}
+          subtitle={services.summary === 'success' ? 'Simulated paths' : 'Awaiting sync'}
           icon={<ShieldCheck size={20} />}
           color="low"
         />
@@ -247,7 +588,7 @@ export default function Dashboard() {
                 Live 3D Urban Digital Twin
               </h2>
               <Badge variant="cyan" dot className="ml-1">
-                Interactive WebGL
+                Procedural Digital Twin (Illustrative Urban Topology)
               </Badge>
             </div>
             <div className="flex items-center gap-2">
@@ -292,12 +633,28 @@ export default function Dashboard() {
               </h2>
             </div>
             <span className="text-[11px] font-mono text-text-muted">
-              P1/P2 Alerts ({priorityFeed.length})
+              {services.incidents === 'success' ? `P1/P2 Alerts (${priorityFeed.length})` : 'Awaiting data'}
             </span>
           </div>
 
           <div className="space-y-2.5 max-h-[440px] overflow-y-auto pr-1">
-            {priorityFeed.map((item) => (
+            {services.incidents === 'loading' && (
+              <div className="p-8 text-center text-text-muted text-xs">
+                <LoadingState message="Loading live operational alerts..." />
+              </div>
+            )}
+            {services.incidents === 'error' && (
+              <div className="p-6 rounded-xl bg-surface-card border border-severity-critical/30 text-center space-y-2">
+                <p className="text-xs text-severity-critical font-medium">Unable to load incident feed</p>
+                <Button variant="ghost" size="sm" onClick={fetchDashboardData}>Retry</Button>
+              </div>
+            )}
+            {services.incidents === 'success' && priorityFeed.length === 0 && (
+              <div className="p-8 rounded-xl bg-surface-card border border-border-standard text-center text-xs text-text-muted">
+                No high-priority critical incidents currently active.
+              </div>
+            )}
+            {services.incidents === 'success' && priorityFeed.map((item) => (
               <div
                 key={item.id}
                 onClick={() => setSelectedIncident(item)}
@@ -343,74 +700,76 @@ export default function Dashboard() {
 
       {/* ─── 5.4 Lower Sections: Incident Trend, Risk, and Operational Activity ─ */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Metric 1: Incident Categories */}
+        {/* Metric 1: Incident Categories (Dynamic from Backend) */}
         <Card className="space-y-3">
-          <SectionHeader title="Category Breakdown" subtitle="Distribution by event type" />
+          <SectionHeader title="Category Breakdown" subtitle="Distribution by event type (Real Data)" />
           <div className="space-y-2 text-xs">
-            {[
-              { label: 'Flooding & Drainage', count: 42, pct: '34%' },
-              { label: 'Road & Pothole Damage', count: 35, pct: '28%' },
-              { label: 'Power Grid Outages', count: 26, pct: '21%' },
-              { label: 'Water Pipeline Bursts', count: 22, pct: '17%' },
-            ].map((cat) => (
-              <div key={cat.label} className="space-y-1">
-                <div className="flex justify-between text-text-secondary text-[11px]">
-                  <span>{cat.label}</span>
-                  <span className="font-mono text-text-primary">{cat.count} ({cat.pct})</span>
+            {dynamicCategories.length === 0 ? (
+              <p className="text-text-muted text-xs py-4 text-center">
+                {services.summary === 'loading' || services.incidents === 'loading' ? 'Loading categories...' : 'No incident category data available.'}
+              </p>
+            ) : (
+              dynamicCategories.slice(0, 5).map((cat) => (
+                <div key={cat.label} className="space-y-1">
+                  <div className="flex justify-between text-text-secondary text-[11px]">
+                    <span className="truncate max-w-[130px]">{cat.label}</span>
+                    <span className="font-mono text-text-primary">{cat.count} ({cat.pct})</span>
+                  </div>
+                  <div className="h-1.5 w-full bg-surface-elevated rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-accent-blue to-accent-cyan rounded-full transition-all duration-500"
+                      style={{ width: cat.pct }}
+                    />
+                  </div>
                 </div>
-                <div className="h-1.5 w-full bg-surface-elevated rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-accent-blue to-accent-cyan rounded-full"
-                    style={{ width: cat.pct }}
-                  />
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </Card>
 
-        {/* Metric 2: Risk Distribution by Zone */}
+        {/* Metric 2: Risk Distribution by Zone (Dynamic from Backend) */}
         <Card className="space-y-3">
-          <SectionHeader title="Zone Risk Distribution" subtitle="Active municipal sectors" />
+          <SectionHeader title="Zone Risk Distribution" subtitle="Active municipal sectors (Real Data)" />
           <div className="space-y-2 text-xs">
-            {[
-              { zone: 'Silk Board / South', risk: 'Critical', color: 'text-severity-critical', bar: 'bg-severity-critical', pct: '85%' },
-              { zone: 'Koramangala / Central', risk: 'High', color: 'text-severity-high', bar: 'bg-severity-high', pct: '68%' },
-              { zone: 'Indiranagar / East', risk: 'Moderate', color: 'text-severity-medium', bar: 'bg-severity-medium', pct: '45%' },
-              { zone: 'Hebbal / North', risk: 'Low', color: 'text-accent-turquoise', bar: 'bg-accent-turquoise', pct: '28%' },
-            ].map((z) => (
-              <div key={z.zone} className="space-y-1">
-                <div className="flex justify-between text-text-secondary text-[11px]">
-                  <span>{z.zone}</span>
-                  <span className={`font-mono font-bold ${z.color}`}>{z.risk}</span>
+            {dynamicZones.length === 0 ? (
+              <p className="text-text-muted text-xs py-4 text-center">
+                {services.summary === 'loading' || services.incidents === 'loading' ? 'Loading zone telemetry...' : 'No zone telemetry available.'}
+              </p>
+            ) : (
+              dynamicZones.slice(0, 5).map((z) => (
+                <div key={z.zone} className="space-y-1">
+                  <div className="flex justify-between text-text-secondary text-[11px]">
+                    <span className="truncate max-w-[130px]">{z.zone}</span>
+                    <span className={`font-mono font-bold ${z.color}`}>{z.risk} ({z.count})</span>
+                  </div>
+                  <div className="h-1.5 w-full bg-surface-elevated rounded-full overflow-hidden">
+                    <div className={`h-full ${z.bar} rounded-full transition-all duration-500`} style={{ width: z.pct }} />
+                  </div>
                 </div>
-                <div className="h-1.5 w-full bg-surface-elevated rounded-full overflow-hidden">
-                  <div className={`h-full ${z.bar} rounded-full`} style={{ width: z.pct }} />
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </Card>
 
-        {/* Metric 3: Work Order Operations */}
+        {/* Metric 3: Work Order Operations (Dynamic from Backend) */}
         <Card className="space-y-3">
-          <SectionHeader title="Work Order Pipeline" subtitle="Departmental dispatch status" />
+          <SectionHeader title="Work Order Pipeline" subtitle="Departmental dispatch status (Real Data)" />
           <div className="space-y-2 text-xs">
             <div className="flex justify-between py-1 border-b border-border-subtle">
               <span className="text-text-muted">Total Dispatched</span>
-              <span className="font-mono font-bold text-text-primary">{workOrderCount}</span>
+              <span className="font-mono font-bold text-text-primary">{dynamicWorkOrderStats.total}</span>
             </div>
             <div className="flex justify-between py-1 border-b border-border-subtle">
-              <span className="text-text-muted">In Progress</span>
-              <span className="font-mono font-bold text-accent-cyan">18</span>
+              <span className="text-text-muted">In Progress / Assigned</span>
+              <span className="font-mono font-bold text-accent-cyan">{dynamicWorkOrderStats.inProgress}</span>
             </div>
             <div className="flex justify-between py-1 border-b border-border-subtle">
               <span className="text-text-muted">Pending Assignment</span>
-              <span className="font-mono font-bold text-severity-high">12</span>
+              <span className="font-mono font-bold text-severity-high">{dynamicWorkOrderStats.open}</span>
             </div>
             <div className="flex justify-between py-1">
               <span className="text-text-muted">Resolved (Verified)</span>
-              <span className="font-mono font-bold text-accent-turquoise">6</span>
+              <span className="font-mono font-bold text-accent-turquoise">{dynamicWorkOrderStats.resolved}</span>
             </div>
             <Button
               variant="outline"
@@ -423,16 +782,26 @@ export default function Dashboard() {
           </div>
         </Card>
 
-        {/* Metric 4: Preventive Intelligence Insights */}
+        {/* Metric 4: Preventive Intelligence Insights (Honest Demo/Model Indicator) */}
         <Card className="space-y-3">
-          <SectionHeader title="Preventive Insights" subtitle="ML-driven risk reduction" />
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-text-primary">
+              Preventive Insights
+            </h3>
+            <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase tracking-wider bg-accent-violet/20 text-accent-violet border border-accent-violet/30">
+              SIMULATED SCENARIO
+            </span>
+          </div>
+          <p className="text-[11px] text-text-muted">
+            Derived from hydraulic & infrastructure cascade simulations
+          </p>
           <div className="space-y-2.5 text-xs">
             <div className="p-2.5 rounded-xl bg-surface-elevated border border-accent-cyan/20">
               <p className="text-[11px] text-accent-cyan font-bold flex items-center gap-1">
-                <Sparkles size={12} /> Proactive Storm Alert
+                <Sparkles size={12} /> Proactive Drainage Mitigation
               </p>
               <p className="text-[11px] text-text-secondary mt-0.5">
-                Pre-clearing 3 major culverts in Silk Board prevents ₹1.8M in cascading flood damage.
+                Simulated pre-clearing of culverts reduces anticipated inundation footprint by up to 38% across adjacent arterial zones.
               </p>
             </div>
             <Button
@@ -451,7 +820,12 @@ export default function Dashboard() {
       <Card padding="none" className="overflow-hidden border border-border-standard">
         <div className="p-5 border-b border-border-standard bg-surface-card flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h2 className="text-base font-bold text-text-primary">Urban Incident Registry</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-bold text-text-primary">Urban Incident Registry</h2>
+              <span className="text-xs font-mono px-2 py-0.5 rounded bg-surface-elevated text-text-secondary border border-border-subtle">
+                {services.incidents === 'success' ? `${filteredIncidents.length} Records Verified` : 'Syncing...'}
+              </span>
+            </div>
             <p className="text-xs text-text-secondary">
               Real-time operational records loaded from municipal operational storage
             </p>
@@ -487,65 +861,80 @@ export default function Dashboard() {
 
         {/* Table View */}
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-surface-elevated/60 text-text-muted uppercase font-mono text-[10px] tracking-wider border-b border-border-standard">
-              <tr>
-                <th className="py-3 px-4">Incident ID</th>
-                <th className="py-3 px-4">Title</th>
-                <th className="py-3 px-4">Type</th>
-                <th className="py-3 px-4">Severity</th>
-                <th className="py-3 px-4">Zone</th>
-                <th className="py-3 px-4">Reported</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border-subtle">
-              {filteredIncidents.slice(0, 15).map((inc) => (
-                <tr
-                  key={inc.id}
-                  className="hover:bg-surface-elevated/40 transition-colors"
-                >
-                  <td className="py-3 px-4 font-mono font-bold text-accent-cyan">
-                    {inc.id}
-                  </td>
-                  <td className="py-3 px-4 font-medium text-text-primary max-w-xs truncate">
-                    {inc.title}
-                  </td>
-                  <td className="py-3 px-4 text-text-secondary">
-                    {inc.incident_type}
-                  </td>
-                  <td className="py-3 px-4">
-                    <SeverityBadge severity={inc.severity} />
-                  </td>
-                  <td className="py-3 px-4 text-text-secondary">
-                    {inc.zone}
-                  </td>
-                  <td className="py-3 px-4 font-mono text-text-muted">
-                    {formatDate(inc.created_at)}
-                  </td>
-                  <td className="py-3 px-4">
-                    <Badge
-                      variant={inc.status === 'resolved' ? 'low' : 'high'}
-                      dot
-                    >
-                      {inc.status}
-                    </Badge>
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={<ArrowUpRight size={13} />}
-                      onClick={() => navigate(`/features/graph?incident_id=${inc.id}`)}
-                    >
-                      Analyze
-                    </Button>
-                  </td>
+          {services.incidents === 'loading' ? (
+            <div className="p-8 text-center text-text-muted text-xs">
+              <LoadingState message="Loading verified incidents from operational database..." />
+            </div>
+          ) : services.incidents === 'error' ? (
+            <div className="p-8 text-center text-severity-critical text-xs space-y-2">
+              <p>Failed to retrieve incidents from municipal backend.</p>
+              <Button variant="ghost" size="sm" onClick={fetchDashboardData}>Retry Connection</Button>
+            </div>
+          ) : filteredIncidents.length === 0 ? (
+            <div className="p-8 text-center text-text-muted text-xs">
+              No incidents matching the selected criteria.
+            </div>
+          ) : (
+            <table className="w-full text-left text-xs">
+              <thead className="bg-surface-elevated/60 text-text-muted uppercase font-mono text-[10px] tracking-wider border-b border-border-standard">
+                <tr>
+                  <th className="py-3 px-4">Incident ID</th>
+                  <th className="py-3 px-4">Title</th>
+                  <th className="py-3 px-4">Type</th>
+                  <th className="py-3 px-4">Severity</th>
+                  <th className="py-3 px-4">Zone</th>
+                  <th className="py-3 px-4">Reported</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4 text-right">Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-border-subtle">
+                {filteredIncidents.slice(0, 15).map((inc) => (
+                  <tr
+                    key={inc.id}
+                    className="hover:bg-surface-elevated/40 transition-colors"
+                  >
+                    <td className="py-3 px-4 font-mono font-bold text-accent-cyan">
+                      {inc.id}
+                    </td>
+                    <td className="py-3 px-4 font-medium text-text-primary max-w-xs truncate">
+                      {inc.title}
+                    </td>
+                    <td className="py-3 px-4 text-text-secondary">
+                      {inc.incident_type}
+                    </td>
+                    <td className="py-3 px-4">
+                      <SeverityBadge severity={inc.severity} />
+                    </td>
+                    <td className="py-3 px-4 text-text-secondary">
+                      {inc.zone}
+                    </td>
+                    <td className="py-3 px-4 font-mono text-text-muted">
+                      {formatDate(inc.created_at)}
+                    </td>
+                    <td className="py-3 px-4">
+                      <Badge
+                        variant={inc.status === 'resolved' ? 'low' : 'high'}
+                        dot
+                      >
+                        {inc.status}
+                      </Badge>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<ArrowUpRight size={13} />}
+                        onClick={() => navigate(`/features/graph?incident_id=${inc.id}`)}
+                      >
+                        Analyze
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </Card>
     </div>

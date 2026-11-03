@@ -209,7 +209,7 @@ export default function IncidentIntake() {
         <div className="p-3 rounded-2xl bg-surface-elevated/70 border border-border-standard space-y-2">
           <div className="flex items-center gap-2 text-xs font-semibold text-text-primary">
             <Sparkles size={14} className="text-accent-cyan" />
-            <span>Load Verified Test Scenario</span>
+            <span>Load Verified Test Scenario (DEMO DATA)</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {SAMPLE_INCIDENTS.map((sample, idx) => (
@@ -219,7 +219,7 @@ export default function IncidentIntake() {
                 onClick={() => loadSample(sample)}
                 className="px-3 py-1.5 rounded-xl bg-bg-midnight/80 hover:bg-surface-elevated border border-border-standard hover:border-accent-cyan/50 text-xs text-text-secondary hover:text-text-primary font-medium transition-all"
               >
-                {sample.label}
+                [DEMO] {sample.label}
               </button>
             ))}
           </div>

@@ -33,7 +33,7 @@ export default function Navbar({ onOpenCommandPalette, onMobileMenuOpen }: Navba
   const location = useLocation()
   const navigate = useNavigate()
   const { user, logout } = useAuth()
-  const [backendHealthy, setBackendHealthy] = useState(true)
+  const [backendStatus, setBackendStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking')
   const [selectedZone, setSelectedZone] = useState('All Bengaluru Zones')
   const [userMenuOpen, setUserMenuOpen] = useState(false)
 
@@ -43,9 +43,10 @@ export default function Navbar({ onOpenCommandPalette, onMobileMenuOpen }: Navba
   }
 
   useEffect(() => {
+    setBackendStatus('checking')
     healthAPI.health()
-      .then(() => setBackendHealthy(true))
-      .catch(() => setBackendHealthy(false))
+      .then(() => setBackendStatus('connected'))
+      .catch(() => setBackendStatus('disconnected'))
   }, [location.pathname])
 
   const handleLogout = async () => {
@@ -107,9 +108,15 @@ export default function Navbar({ onOpenCommandPalette, onMobileMenuOpen }: Navba
 
         {/* Backend Status Indicator */}
         <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-surface-elevated border border-border-subtle text-xs font-mono">
-          <span className={`w-2 h-2 rounded-full ${backendHealthy ? 'bg-severity-low animate-pulse' : 'bg-severity-critical'}`} />
-          <span className={backendHealthy ? 'text-text-secondary' : 'text-severity-critical'}>
-            {backendHealthy ? 'API Active' : 'API Offline'}
+          <span className={`w-2 h-2 rounded-full ${
+            backendStatus === 'connected' ? 'bg-severity-low animate-pulse' :
+            backendStatus === 'disconnected' ? 'bg-severity-critical' : 'bg-accent-blue animate-pulse'
+          }`} />
+          <span className={
+            backendStatus === 'connected' ? 'text-text-secondary' :
+            backendStatus === 'disconnected' ? 'text-severity-critical' : 'text-accent-blue'
+          }>
+            {backendStatus === 'connected' ? 'API: Connected' : backendStatus === 'disconnected' ? 'API: Disconnected' : 'API: Checking...'}
           </span>
         </div>
 

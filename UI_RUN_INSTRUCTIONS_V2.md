@@ -21,7 +21,7 @@ python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 * Interactive API Docs: `http://127.0.0.1:8000/docs`
 * Health Check: `http://127.0.0.1:8000/health`
 
-### Terminal 2 — Start React 18 Frontend
+### Terminal 2 — Start React 19 Frontend
 ```powershell
 cd C:\Projects\CivicOS\CivicOS_Person3\frontend
 npm run dev -- --host 127.0.0.1 --port 5173

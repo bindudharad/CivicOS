@@ -192,12 +192,17 @@ export function KPICard({
     low: 'text-severity-low border-severity-low/20 bg-severity-low/5',
   }
 
+  const testId = `kpi-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
+
   return (
-    <Card className={`relative overflow-hidden group hover:border-accent-${color}/40 transition-all duration-300 ${className}`}>
+    <Card 
+      data-testid={testId}
+      className={`relative overflow-hidden group hover:border-accent-${color}/40 transition-all duration-300 ${className}`}
+    >
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-1">{title}</p>
-          <p className="text-2xl lg:text-3xl font-extrabold text-text-primary tracking-tight font-mono">{value}</p>
+          <p data-testid={`${testId}-value`} className="text-2xl lg:text-3xl font-extrabold text-text-primary tracking-tight font-mono">{value}</p>
           {subtitle && <p className="text-xs text-text-secondary mt-1">{subtitle}</p>}
           {change && (
             <p

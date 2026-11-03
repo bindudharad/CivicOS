@@ -807,7 +807,7 @@ export default function CityScene3D({
       )}
 
       {/* Bottom Telemetry Legend Pill */}
-      <div className="absolute bottom-3 left-4 z-10 flex items-center gap-3 px-3 py-1.5 rounded-xl bg-bg-midnight/85 backdrop-blur-md border border-border-subtle text-[11px] font-mono text-text-secondary shadow-md">
+      <div className="absolute bottom-3 left-4 z-10 flex flex-wrap items-center gap-3 px-3 py-1.5 rounded-xl bg-bg-midnight/90 backdrop-blur-md border border-border-subtle text-[11px] font-mono text-text-secondary shadow-md">
         <span className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-severity-critical" /> Critical
         </span>
@@ -819,6 +819,10 @@ export default function CityScene3D({
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-accent-turquoise" /> Low
+        </span>
+        <span className="text-border-standard">|</span>
+        <span className="text-text-muted text-[10px]">
+          Procedural Twin • Traffic: Simulated Flow (Illustrative)
         </span>
       </div>
     </div>

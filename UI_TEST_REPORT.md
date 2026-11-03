@@ -2,7 +2,7 @@
 ## Next-Generation 3D Urban Intelligence Command Center
 
 **Generated:** 2026-11-03  
-**Frontend:** `frontend/` (React 18 + TypeScript + Vite 6 + Three.js)  
+**Frontend:** `frontend/` (React 19.3.1 + TypeScript + Vite 8 + Three.js)  
 **Backend:** FastAPI + SQLite (`CivicOS_Person3/`)  
 **Test Environment:** Windows 11, Node.js v24.20.0, npm 11.19.0, Python 3.10  
 
