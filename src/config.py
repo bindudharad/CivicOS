@@ -17,7 +17,7 @@ RAW_DATA_PATH = DATA_DIR / "raw" / "urban_incidents.csv"
 RUNTIME_DATA_DIR = DATA_DIR / "runtime"
 OPERATIONS_DB_PATH = Path(os.getenv("CIVICOS_OPERATIONS_DB", str(RUNTIME_DATA_DIR / "civicos_operations.sqlite3"))).resolve()
 ENVIRONMENT = os.getenv("CIVICOS_ENV", "development").casefold()
-ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("CIVICOS_ALLOWED_ORIGINS", "http://localhost:8501,http://127.0.0.1:8501").split(",") if origin.strip()]
+ALLOWED_ORIGINS = [origin.strip() for origin in os.getenv("CIVICOS_ALLOWED_ORIGINS", "http://localhost:8501,http://127.0.0.1:8501,http://localhost:5173,http://127.0.0.1:5173").split(",") if origin.strip()]
 SESSION_TTL_MINUTES = int(os.getenv("CIVICOS_SESSION_TTL_MINUTES", "480"))
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
 
