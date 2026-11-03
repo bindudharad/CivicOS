@@ -5,12 +5,12 @@ import { MapPin, Sliders, Layers, Compass, CheckCircle2 } from 'lucide-react'
 
 interface Hotspot {
   cluster_id: number
-  center_lat: number
-  center_lon: number
-  incident_count: number
-  avg_severity: number
-  dominant_type: string
-  zone: string
+  center_lat: number | null
+  center_lon: number | null
+  incident_count: number | null
+  avg_severity: number | null
+  dominant_type: string | null
+  zone: string | null
   incidents: string[]
 }
 
@@ -36,16 +36,33 @@ export default function GeospatialIntelligence() {
     try {
       const r = await geoAPI.hotspots({ eps_km: parseFloat(eps), min_samples: parseInt(minSamples) })
       const raw = r.data?.hotspots || []
-      const normHotspots: Hotspot[] = raw.map((h: any, i: number) => ({
-        cluster_id: h.cluster_id ?? i,
-        center_lat: Number(h.center_latitude ?? h.center_lat ?? 12.9716),
-        center_lon: Number(h.center_longitude ?? h.center_lon ?? 77.5946),
-        incident_count: Number(h.incident_count ?? (h.incident_ids ? h.incident_ids.length : 1)),
-        avg_severity: Number(h.average_severity ?? h.avg_severity ?? 6.0),
-        dominant_type: String(h.dominant_incident_type ?? h.dominant_type ?? 'Urban Incident'),
-        zone: Array.isArray(h.zones_covered) ? h.zones_covered.join(', ') : String(h.zone ?? 'Central Zone'),
-        incidents: h.incident_ids ?? h.incidents ?? [],
-      }))
+      const parseCoord = (v: any, min: number, max: number): number | null => {
+        if (v === null || v === undefined || v === '') return null
+        const n = Number(v)
+        return isNaN(n) || n < min || n > max ? null : n
+      }
+      const normHotspots: Hotspot[] = raw.map((h: any, i: number) => {
+        const lat = parseCoord(h.center_latitude ?? h.center_lat, -90, 90)
+        const lon = parseCoord(h.center_longitude ?? h.center_lon, -180, 180)
+        const hasCoords = lat !== null && lon !== null
+        const countRaw = h.incident_count ?? (h.incident_ids ? h.incident_ids.length : null)
+        const count = countRaw !== null && countRaw !== undefined && !isNaN(Number(countRaw)) ? Number(countRaw) : null
+        const sevRaw = h.average_severity ?? h.avg_severity ?? h.severity
+        const avgSev = sevRaw !== null && sevRaw !== undefined && !isNaN(Number(sevRaw)) ? Number(sevRaw) : null
+        const zoneStr = Array.isArray(h.zones_covered) && h.zones_covered.length > 0 
+          ? h.zones_covered.join(', ') 
+          : (h.zone ? String(h.zone) : null)
+        return {
+          cluster_id: h.cluster_id ?? i,
+          center_lat: hasCoords ? lat : null,
+          center_lon: hasCoords ? lon : null,
+          incident_count: count,
+          avg_severity: avgSev,
+          dominant_type: h.dominant_incident_type ?? h.dominant_type ?? null,
+          zone: zoneStr,
+          incidents: h.incident_ids ?? h.incidents ?? [],
+        }
+      })
       setData({
         hotspots: normHotspots,
         algorithm: r.data?.clustering_algorithm ?? r.data?.algorithm ?? 'DBSCAN',
@@ -195,11 +212,11 @@ export default function GeospatialIntelligence() {
                 ))}
 
                 {/* Hotspot Circles */}
-                {data?.hotspots.map((hs) => {
-                  const cx = toX(hs.center_lon)
-                  const cy = toY(hs.center_lat)
+                {data?.hotspots.filter(hs => hs.center_lat !== null && hs.center_lon !== null).map((hs) => {
+                  const cx = toX(hs.center_lon!)
+                  const cy = toY(hs.center_lat!)
                   const isSelected = selectedCluster?.cluster_id === hs.cluster_id
-                  const col = hs.avg_severity >= 7.5 ? '#FF5577' : hs.avg_severity >= 5.5 ? '#FF9B55' : '#34D9E8'
+                  const col = (hs.avg_severity ?? 0) >= 7.5 ? '#FF5577' : (hs.avg_severity ?? 0) >= 5.5 ? '#FF9B55' : '#34D9E8'
 
                   return (
                     <g
@@ -211,7 +228,7 @@ export default function GeospatialIntelligence() {
                       <circle
                         cx={cx}
                         cy={cy}
-                        r={Math.max(16, hs.incident_count * 2.8)}
+                        r={Math.max(16, (hs.incident_count ?? 1) * 2.8)}
                         fill={col}
                         fillOpacity={isSelected ? 0.35 : 0.15}
                         stroke={col}
@@ -236,7 +253,7 @@ export default function GeospatialIntelligence() {
                         fontWeight="bold"
                         textAnchor="middle"
                       >
-                        #{hs.cluster_id} ({hs.incident_count})
+                        #{hs.cluster_id} ({hs.incident_count ?? 'N/A'})
                       </text>
                     </g>
                   )
@@ -263,21 +280,21 @@ export default function GeospatialIntelligence() {
                 <p className="text-base font-bold text-text-primary leading-tight">
                   {selectedCluster.dominant_type}
                 </p>
-                <Badge variant="cyan">Zone: {selectedCluster.zone}</Badge>
+                <Badge variant="cyan">Zone: {selectedCluster.zone || 'Unassigned'}</Badge>
               </div>
 
               <div className="space-y-2">
                 <div className="flex justify-between py-1.5 border-b border-border-subtle">
                   <span className="text-text-muted">Centroid Latitude</span>
-                  <span className="font-mono text-text-primary font-bold">{selectedCluster.center_lat.toFixed(4)}</span>
+                  <span className="font-mono text-text-primary font-bold">{selectedCluster.center_lat !== null ? selectedCluster.center_lat.toFixed(4) : 'Unavailable'}</span>
                 </div>
                 <div className="flex justify-between py-1.5 border-b border-border-subtle">
                   <span className="text-text-muted">Centroid Longitude</span>
-                  <span className="font-mono text-text-primary font-bold">{selectedCluster.center_lon.toFixed(4)}</span>
+                  <span className="font-mono text-text-primary font-bold">{selectedCluster.center_lon !== null ? selectedCluster.center_lon.toFixed(4) : 'Unavailable'}</span>
                 </div>
                 <div className="flex justify-between py-1.5 border-b border-border-subtle">
                   <span className="text-text-muted">Incidents in Core</span>
-                  <span className="font-mono text-accent-cyan font-bold">{selectedCluster.incident_count} events</span>
+                  <span className="font-mono text-accent-cyan font-bold">{selectedCluster.incident_count !== null ? `${selectedCluster.incident_count} events` : 'Count N/A'}</span>
                 </div>
                 <div className="flex justify-between py-1.5 border-b border-border-subtle">
                   <span className="text-text-muted">Average Severity</span>

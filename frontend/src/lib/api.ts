@@ -29,52 +29,100 @@ api.interceptors.response.use(
   }
 )
 
-// ─── Data Normalization Helpers ───────────────────────────────────────────────
+// ─── Data Normalization Utilities ─────────────────────────────────────────────
+
+export function parseNullableNumber(val: any): number | null {
+  if (val === null || val === undefined || val === '') return null
+  const num = typeof val === 'number' ? val : Number(val)
+  return isNaN(num) ? null : num
+}
+
+export function parseNullableString(val: any): string | null {
+  if (val === null || val === undefined) return null
+  const s = String(val).trim()
+  return s === '' ? null : s
+}
+
+export function parseNullableIsoDate(val: any): string | null {
+  if (val === null || val === undefined || val === '') return null
+  const d = new Date(val)
+  if (isNaN(d.getTime())) return null
+  return d.toISOString()
+}
+
+export function isValidCoordinate(lat: any, lon: any): boolean {
+  if (lat === null || lat === undefined || lon === null || lon === undefined) return false
+  const nLat = typeof lat === 'number' ? lat : Number(lat)
+  const nLon = typeof lon === 'number' ? lon : Number(lon)
+  if (isNaN(nLat) || isNaN(nLon)) return false
+  return nLat >= -90 && nLat <= 90 && nLon >= -180 && nLon <= 180
+}
+
+export function normalizeCoordinates(latRaw: any, lonRaw: any): {
+  latitude: number | null
+  longitude: number | null
+  has_valid_location: boolean
+} {
+  if (latRaw === null || latRaw === undefined || lonRaw === null || lonRaw === undefined) {
+    return { latitude: null, longitude: null, has_valid_location: false }
+  }
+  const lat = typeof latRaw === 'number' ? latRaw : Number(latRaw)
+  const lon = typeof lonRaw === 'number' ? lonRaw : Number(lonRaw)
+  if (isNaN(lat) || isNaN(lon)) {
+    return { latitude: null, longitude: null, has_valid_location: false }
+  }
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    return { latitude: null, longitude: null, has_valid_location: false }
+  }
+  return { latitude: lat, longitude: lon, has_valid_location: true }
+}
+
+// ─── Strict Incident Model & Normalizer ────────────────────────────────────────
 
 export interface NormalizedIncident {
   id: string
   title: string
-  description?: string
+  description: string | null
   incident_type: string
   category: string
-  zone: string
-  ward: string
+  zone: string | null
+  ward: string | null
   severity: number | null
   status: string
-  latitude: number
-  longitude: number
-  affected_population: number
-  created_at: string
+  latitude: number | null
+  longitude: number | null
+  has_valid_location: boolean
+  affected_population: number | null
+  created_at: string | null
   raw: any
 }
 
 export function normalizeIncident(raw: any): NormalizedIncident {
   const id = String(raw?.id ?? raw?.incident_id ?? 'N/A')
-  const title = String(raw?.title ?? raw?.description?.slice(0, 45) ?? 'Urban Incident')
-  const description = String(raw?.description ?? raw?.title ?? 'No detailed description recorded.')
-  const incident_type = String(raw?.incident_type ?? raw?.category ?? 'Incident')
-  const category = String(raw?.category ?? 'General')
-  const zone = String(raw?.zone ?? raw?.ward ?? 'Central Zone')
-  const ward = String(raw?.ward ?? 'Ward 1')
+  const title = parseNullableString(raw?.title) ?? parseNullableString(raw?.description?.slice(0, 45)) ?? 'Urban Incident'
+  const description = parseNullableString(raw?.description) ?? parseNullableString(raw?.title) ?? null
+  const incident_type = parseNullableString(raw?.incident_type ?? raw?.category) ?? 'Incident'
+  const category = parseNullableString(raw?.category) ?? 'General'
+  const zone = parseNullableString(raw?.zone ?? raw?.ward_zone)
+  const ward = parseNullableString(raw?.ward)
   
-  // Distinguish missing from 0
+  // Distinguish missing from numeric 0
   const sevVal = raw?.severity_score ?? raw?.severity ?? raw?.composite_severity
-  const severity = typeof sevVal === 'number' && !isNaN(sevVal) ? sevVal : null
+  const severity = parseNullableNumber(sevVal)
   
-  const status = String(raw?.status ?? 'reported').toLowerCase()
-  const latitude = Number(raw?.latitude ?? 12.9716)
-  const longitude = Number(raw?.longitude ?? 77.5946)
-  const affected_population = Number(raw?.affected_population ?? 100)
+  const status = parseNullableString(raw?.status)?.toLowerCase() ?? 'reported'
   
-  // Safe date normalization
-  let created_at = new Date().toISOString()
+  const coords = normalizeCoordinates(
+    raw?.latitude ?? raw?.lat,
+    raw?.longitude ?? raw?.lon ?? raw?.lng
+  )
+  
+  // Distinguish missing from numeric 0
+  const affected_population = parseNullableNumber(raw?.affected_population ?? raw?.population_affected)
+  
+  // Safe date normalization: strictly never fabricate current timestamp for missing/invalid date
   const rawDate = raw?.created_at ?? raw?.reported_at ?? raw?.timestamp
-  if (rawDate) {
-    const d = new Date(rawDate)
-    if (!isNaN(d.getTime())) {
-      created_at = d.toISOString()
-    }
-  }
+  const created_at = parseNullableIsoDate(rawDate)
 
   return {
     id,
@@ -86,60 +134,88 @@ export function normalizeIncident(raw: any): NormalizedIncident {
     ward,
     severity,
     status,
-    latitude,
-    longitude,
+    latitude: coords.latitude,
+    longitude: coords.longitude,
+    has_valid_location: coords.has_valid_location,
     affected_population,
     created_at,
     raw,
   }
 }
 
+// ─── Strict Work Order Model & Normalizer ──────────────────────────────────────
+
 export interface NormalizedWorkOrder {
   id: string
   incident_id: string
-  department: string
-  status: string
+  department: string | null
+  status: string | null
   assignee: string | null
   instructions: string | null
   resolution_evidence: string | null
-  created_at: string
-  updated_at: string
+  created_at: string | null
+  updated_at: string | null
 }
 
 export function normalizeWorkOrder(raw: any): NormalizedWorkOrder {
   return {
     id: String(raw?.id ?? 'WO-UNKNOWN'),
     incident_id: String(raw?.incident_id ?? ''),
-    department: String(raw?.department ?? 'Municipal Operations'),
-    status: String(raw?.status ?? 'open').toLowerCase(),
-    assignee: raw?.assignee ? String(raw.assignee) : null,
-    instructions: raw?.instructions ? String(raw.instructions) : null,
-    resolution_evidence: raw?.resolution_evidence ? String(raw.resolution_evidence) : null,
-    created_at: raw?.created_at ?? new Date().toISOString(),
-    updated_at: raw?.updated_at ?? new Date().toISOString(),
+    department: parseNullableString(raw?.department),
+    status: parseNullableString(raw?.status)?.toLowerCase() ?? null,
+    assignee: parseNullableString(raw?.assignee),
+    instructions: parseNullableString(raw?.instructions),
+    resolution_evidence: parseNullableString(raw?.resolution_evidence),
+    created_at: parseNullableIsoDate(raw?.created_at),
+    updated_at: parseNullableIsoDate(raw?.updated_at),
   }
 }
 
+// ─── Strict Hotspot Model & Normalizer ─────────────────────────────────────────
+
 export interface NormalizedHotspot {
   cluster_id: number
-  center_lat: number
-  center_lon: number
-  incident_count: number
-  avg_severity: number
-  dominant_type: string
-  zone: string
+  center_lat: number | null
+  center_lon: number | null
+  incident_count: number | null
+  avg_severity: number | null
+  dominant_type: string | null
+  zone: string | null
+  has_valid_location: boolean
   raw?: any
 }
 
 export function normalizeHotspot(raw: any): NormalizedHotspot {
+  const coords = normalizeCoordinates(
+    raw?.center_latitude ?? raw?.center_lat,
+    raw?.center_longitude ?? raw?.center_lon
+  )
+
+  const countVal = raw?.incident_count ?? raw?.count
+  const incident_count = parseNullableNumber(countVal)
+
+  const sevVal = raw?.average_severity ?? raw?.avg_severity ?? raw?.severity
+  const avg_severity = parseNullableNumber(sevVal)
+
+  const dominant_type = parseNullableString(raw?.dominant_incident_type ?? raw?.dominant_type)
+
+  let rawZone: any = null
+  if (Array.isArray(raw?.zones_covered) && raw.zones_covered.length > 0) {
+    rawZone = raw.zones_covered[0]
+  } else if (raw?.zone) {
+    rawZone = raw.zone
+  }
+  const zone = parseNullableString(rawZone)
+
   return {
     cluster_id: Number(raw?.cluster_id ?? 0),
-    center_lat: Number(raw?.center_latitude ?? raw?.center_lat ?? 12.9716),
-    center_lon: Number(raw?.center_longitude ?? raw?.center_lon ?? 77.5946),
-    incident_count: Number(raw?.incident_count ?? 1),
-    avg_severity: Number(raw?.average_severity ?? raw?.avg_severity ?? 6.0),
-    dominant_type: String(raw?.dominant_incident_type ?? raw?.dominant_type ?? 'Urban Hazard'),
-    zone: String(Array.isArray(raw?.zones_covered) && raw.zones_covered.length > 0 ? raw.zones_covered[0] : (raw?.zone ?? 'Central Zone')),
+    center_lat: coords.latitude,
+    center_lon: coords.longitude,
+    incident_count,
+    avg_severity,
+    dominant_type,
+    zone,
+    has_valid_location: coords.has_valid_location,
     raw,
   }
 }

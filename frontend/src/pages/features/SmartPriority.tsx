@@ -32,7 +32,7 @@ export default function SmartPriority() {
       const res = await scoringAPI.evaluate({
         severity_score: inc.severity ?? 7.0,
         impact_radius_meters: 1000,
-        affected_population: inc.affected_population || 1500,
+        affected_population: inc.affected_population ?? 100,
       })
       setEvaluatedScore(res.data)
     } catch (err: any) {
@@ -94,7 +94,7 @@ export default function SmartPriority() {
                         {inc.title}
                       </p>
                       <p className="text-xs text-text-muted">
-                        Zone: {inc.zone} • {inc.affected_population.toLocaleString()} citizens
+                        Zone: {inc.zone || 'Unassigned'} • {inc.affected_population !== null ? `${inc.affected_population.toLocaleString()} citizens` : 'Population unrecorded'}
                       </p>
                     </div>
 
@@ -121,7 +121,7 @@ export default function SmartPriority() {
                 </span>
                 <p className="text-sm font-bold text-text-primary">{selectedIncident.title}</p>
                 <div className="flex gap-2">
-                  <Badge variant="cyan">{selectedIncident.zone}</Badge>
+                  <Badge variant="cyan">{selectedIncident.zone || 'Zone unassigned'}</Badge>
                   <SeverityBadge severity={selectedIncident.severity} />
                 </div>
               </div>

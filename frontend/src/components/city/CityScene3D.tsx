@@ -47,7 +47,7 @@ export default function CityScene3D({
 }: CityScene3DProps) {
   const mountRef = useRef<HTMLDivElement | null>(null)
   const [cameraPreset, setCameraPreset] = useState<'perspective' | 'topdown' | 'isometric'>('perspective')
-  const [hoveredEntity, setHoveredEntity] = useState<{ title: string; type: string; severity?: number; zone?: string } | null>(null)
+  const [hoveredEntity, setHoveredEntity] = useState<{ title: string; type: string; severity?: number | null; zone?: string | null } | null>(null)
   const [mousePos, setMousePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
 
   // Active layer state
@@ -80,8 +80,13 @@ export default function CityScene3D({
   // Filtered incidents based on zone
   const displayIncidents = incidents.filter((inc) => {
     if (selectedZoneFilter === 'All') return true
-    return inc.zone.toLowerCase().includes(selectedZoneFilter.toLowerCase())
+    return inc.zone?.toLowerCase().includes(selectedZoneFilter.toLowerCase()) ?? false
   })
+
+  // Exclude records without valid coordinates from 3D positioning
+  const plottableIncidents = displayIncidents.filter((inc) => inc.latitude !== null && inc.longitude !== null && inc.has_valid_location)
+  const plottableHotspots = (hotspots ?? []).filter((hs) => hs.has_valid_location && hs.center_lat !== null && hs.center_lon !== null)
+  const unlocatedCount = incidents.filter((inc) => inc.latitude === null || inc.longitude === null).length
 
   // Camera presets
   const applyCameraPreset = (preset: 'perspective' | 'topdown' | 'isometric') => {
@@ -502,8 +507,8 @@ export default function CityScene3D({
           const hit = beaconHits[0].object as any
           if (hit.userData?.hotspot) {
             setHoveredEntity({
-              title: `Hotspot: ${hit.userData.hotspot.dominant_type}`,
-              type: `${hit.userData.hotspot.incident_count} reports`,
+              title: `Hotspot: ${hit.userData.hotspot.dominant_type || 'Unclassified'}`,
+              type: `${hit.userData.hotspot.incident_count ?? 'N/A'} reports`,
               severity: hit.userData.hotspot.avg_severity,
               zone: hit.userData.hotspot.zone,
             })
@@ -584,7 +589,7 @@ export default function CityScene3D({
       return 0x35e5c5 // Low
     }
 
-    displayIncidents.slice(0, 75).forEach((inc, idx) => {
+    plottableIncidents.slice(0, 75).forEach((inc, idx) => {
       const pinColor = getPinColor(inc.severity)
       const pinMat = new THREE.MeshStandardMaterial({
         color: pinColor,
@@ -605,8 +610,8 @@ export default function CityScene3D({
       coneMesh.add(sphereMesh)
 
       // Map lat/lon onto [-60, 60]
-      const px = ((inc.longitude - 77.59) * 220) + (Math.sin(idx * 3) * 4)
-      const pz = -((inc.latitude - 12.97) * 220) + (Math.cos(idx * 3) * 4)
+      const px = (((inc.longitude as number) - 77.59) * 220) + (Math.sin(idx * 3) * 4)
+      const pz = -(((inc.latitude as number) - 12.97) * 220) + (Math.cos(idx * 3) * 4)
       const clampedX = Math.max(-62, Math.min(62, px))
       const clampedZ = Math.max(-62, Math.min(62, pz))
 
@@ -626,7 +631,7 @@ export default function CityScene3D({
 
       pinsGroup.add(coneMesh)
     })
-  }, [displayIncidents, selectedIncident, activeLayers.incidents])
+  }, [plottableIncidents, selectedIncident, activeLayers.incidents])
 
   // Update DBSCAN Hotspot Beacons
   useEffect(() => {
@@ -639,8 +644,8 @@ export default function CityScene3D({
 
     if (!activeLayers.hotspots) return
 
-    hotspots.forEach((hs, idx) => {
-      const isCritical = hs.avg_severity >= 7.5
+    plottableHotspots.forEach((hs, idx) => {
+      const isCritical = (hs.avg_severity ?? 0) >= 7.5
       const color = isCritical ? 0xff5577 : 0xff9b55
 
       // Pulsing Ring Beacon
@@ -654,8 +659,8 @@ export default function CityScene3D({
       const ringMesh = new THREE.Mesh(ringGeo, ringMat)
       ringMesh.rotation.x = -Math.PI / 2
 
-      const hx = ((hs.center_lon - 77.59) * 220) + (Math.sin(idx * 7) * 5)
-      const hz = -((hs.center_lat - 12.97) * 220) + (Math.cos(idx * 7) * 5)
+      const hx = (((hs.center_lon as number) - 77.59) * 220) + (Math.sin(idx * 7) * 5)
+      const hz = -(((hs.center_lat as number) - 12.97) * 220) + (Math.cos(idx * 7) * 5)
       const clampedX = Math.max(-58, Math.min(58, hx))
       const clampedZ = Math.max(-58, Math.min(58, hz))
 
@@ -678,7 +683,7 @@ export default function CityScene3D({
       beaconsGroup.add(ringMesh)
       beaconsGroup.add(coreMesh)
     })
-  }, [hotspots, activeLayers.hotspots])
+  }, [plottableHotspots, activeLayers.hotspots])
 
   // Toggle Visibility of Groups
   useEffect(() => {
@@ -797,9 +802,9 @@ export default function CityScene3D({
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[10px] text-accent-cyan font-mono">{hoveredEntity.type}</span>
             {hoveredEntity.zone && <span className="text-[10px] text-text-muted">• {hoveredEntity.zone}</span>}
-            {hoveredEntity.severity !== undefined && (
+            {hoveredEntity.severity !== undefined && hoveredEntity.severity !== null && (
               <span className="text-[10px] font-mono font-bold text-severity-critical">
-                Sev: {hoveredEntity.severity?.toFixed(1) ?? 'N/A'}
+                Sev: {hoveredEntity.severity.toFixed(1)}
               </span>
             )}
           </div>
@@ -820,6 +825,14 @@ export default function CityScene3D({
         <span className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-accent-turquoise" /> Low
         </span>
+        {unlocatedCount > 0 && (
+          <>
+            <span className="text-border-standard">|</span>
+            <span className="text-amber-400 font-medium">
+              {unlocatedCount} Unlocated Excluded
+            </span>
+          </>
+        )}
         <span className="text-border-standard">|</span>
         <span className="text-text-muted text-[10px]">
           Procedural Twin • Traffic: Simulated Flow (Illustrative)

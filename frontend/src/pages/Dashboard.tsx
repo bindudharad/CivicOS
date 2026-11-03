@@ -260,7 +260,7 @@ export default function Dashboard() {
         inc.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
         inc.incident_type.toLowerCase().includes(searchQuery.toLowerCase())
 
-      const matchesZone = selectedZoneFilter === 'All' || inc.zone.includes(selectedZoneFilter)
+      const matchesZone = selectedZoneFilter === 'All' || (inc.zone ? inc.zone.includes(selectedZoneFilter) : false)
 
       let matchesSeverity = true
       if (selectedSeverityFilter === 'Critical') matchesSeverity = (inc.severity ?? 0) >= 8.0
@@ -420,7 +420,8 @@ export default function Dashboard() {
     if (services.incidents === 'success' && incidents.length > 0) {
       const counts: Record<string, number> = {}
       incidents.forEach((inc) => {
-        counts[inc.zone] = (counts[inc.zone] || 0) + 1
+        const z = inc.zone || 'Zone Unknown'
+        counts[z] = (counts[z] || 0) + 1
       })
       const entries = Object.entries(counts)
       const maxCount = Math.max(...entries.map(([, c]) => c), 1)
@@ -451,7 +452,7 @@ export default function Dashboard() {
     return { total, inProgress, open, resolved }
   }, [services.workOrders, workOrders])
 
-  const formatDate = (isoString?: string) => {
+  const formatDate = (isoString?: string | null) => {
     if (!isoString) return '—'
     try {
       const d = new Date(isoString)
@@ -715,7 +716,7 @@ export default function Dashboard() {
                 </div>
 
                 <div className="mt-2 flex items-center justify-between text-[11px] text-text-muted font-mono">
-                  <span>{item.zone}</span>
+                  <span>{item.zone || 'Zone unassigned'}</span>
                   <span>{formatDate(item.created_at)}</span>
                 </div>
               </div>

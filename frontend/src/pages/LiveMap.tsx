@@ -29,6 +29,7 @@ export default function LiveMap() {
   const [selectedHotspot, setSelectedHotspot] = useState<NormalizedHotspot | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedZoneFilter, setSelectedZoneFilter] = useState<string>('All')
+  const unlocatedCount = useMemo(() => incidents.filter((i) => i.latitude === null || i.longitude === null).length, [incidents])
 
   // Layer Toggles
   const [layers, setLayers] = useState({
@@ -69,7 +70,7 @@ export default function LiveMap() {
   // Filtered incidents by zone
   const filteredIncidents = useMemo(() => {
     if (selectedZoneFilter === 'All') return incidents
-    return incidents.filter((i) => i.zone.toLowerCase().includes(selectedZoneFilter.toLowerCase()))
+    return incidents.filter((i) => i.zone?.toLowerCase().includes(selectedZoneFilter.toLowerCase()) ?? false)
   }, [incidents, selectedZoneFilter])
 
   return (
@@ -88,6 +89,11 @@ export default function LiveMap() {
               <Badge variant="cyan" dot>
                 WebGL Active
               </Badge>
+              {unlocatedCount > 0 && (
+                <Badge variant="high">
+                  {unlocatedCount} Unlocated
+                </Badge>
+              )}
             </div>
             <p className="text-xs text-text-secondary">
               High-resolution spatial model of Bengaluru infrastructure & real-time incidents
@@ -174,7 +180,7 @@ export default function LiveMap() {
               </div>
               <div className="p-2 rounded-lg bg-surface-elevated/70 border border-border-subtle">
                 <span className="text-[10px] text-text-muted block">Zone</span>
-                <span className="text-text-primary font-semibold truncate block mt-1">{selectedIncident.zone}</span>
+                <span className="text-text-primary font-semibold truncate block mt-1">{selectedIncident.zone || 'Zone unassigned'}</span>
               </div>
               <div className="p-2 rounded-lg bg-surface-elevated/70 border border-border-subtle">
                 <span className="text-[10px] text-text-muted block">Type</span>
@@ -239,16 +245,16 @@ export default function LiveMap() {
                       Cluster #{hs.cluster_id}
                     </td>
                     <td className="py-2.5 px-3 font-medium text-text-primary">
-                      {hs.dominant_type}
+                      {hs.dominant_type || 'Unclassified'}
                     </td>
                     <td className="py-2.5 px-3 font-mono text-text-secondary">
-                      {hs.incident_count} reports
+                      {hs.incident_count !== null ? `${hs.incident_count} reports` : 'Count N/A'}
                     </td>
                     <td className="py-2.5 px-3">
                       <SeverityBadge severity={hs.avg_severity} />
                     </td>
                     <td className="py-2.5 px-3 text-text-secondary">
-                      {hs.zone}
+                      {hs.zone || 'Zone unassigned'}
                     </td>
                     <td className="py-2.5 px-3 text-right">
                       <Button
@@ -274,19 +280,19 @@ export default function LiveMap() {
               <div className="p-3 rounded-xl bg-surface-elevated border border-accent-cyan/20">
                 <span className="text-[10px] font-mono text-accent-cyan uppercase">Active Cluster</span>
                 <p className="text-base font-bold text-text-primary mt-0.5">{selectedHotspot.dominant_type}</p>
-                <p className="text-xs text-text-muted">Located in {selectedHotspot.zone}</p>
+                <p className="text-xs text-text-muted">{selectedHotspot.zone ? `Located in ${selectedHotspot.zone}` : 'Zone unassigned'}</p>
               </div>
 
               <div className="space-y-2 text-xs">
                 <div className="flex justify-between py-1.5 border-b border-border-subtle">
                   <span className="text-text-muted">Centroid (Lat/Lon)</span>
                   <span className="font-mono text-text-primary font-medium">
-                    {(selectedHotspot.center_lat ?? 12.9716).toFixed(4)}, {(selectedHotspot.center_lon ?? 77.5946).toFixed(4)}
+                    {selectedHotspot.center_lat !== null && selectedHotspot.center_lon !== null ? `${selectedHotspot.center_lat.toFixed(4)}, ${selectedHotspot.center_lon.toFixed(4)}` : 'Coordinates unavailable'}
                   </span>
                 </div>
                 <div className="flex justify-between py-1.5 border-b border-border-subtle">
                   <span className="text-text-muted">Total Events</span>
-                  <span className="font-mono text-accent-cyan font-bold">{selectedHotspot.incident_count}</span>
+                  <span className="font-mono text-accent-cyan font-bold">{selectedHotspot.incident_count !== null ? selectedHotspot.incident_count : 'N/A'}</span>
                 </div>
                 <div className="flex justify-between py-1.5 border-b border-border-subtle">
                   <span className="text-text-muted">Average Severity</span>

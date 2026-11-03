@@ -22,10 +22,24 @@ import main
 
 def test_isolated_empty_sqlite_database(tmp_path):
     """Verify true zero-state behavior using an isolated temporary SQLite database."""
-    # 1. Snapshot normal project database
+    # 1. Snapshot normal project database (SHA-256 with WAL and SHM accounting)
+    import hashlib
+
+    def get_sqlite_sha256_state(db_file: Path) -> dict:
+        state = {}
+        if db_file.exists():
+            state["db"] = hashlib.sha256(db_file.read_bytes()).hexdigest()
+        wal_file = Path(f"{db_file}-wal")
+        if wal_file.exists():
+            state["wal"] = hashlib.sha256(wal_file.read_bytes()).hexdigest()
+        shm_file = Path(f"{db_file}-shm")
+        if shm_file.exists():
+            state["shm"] = hashlib.sha256(shm_file.read_bytes()).hexdigest()
+        return state
+
     prod_db = Path(OPERATIONS_DB_PATH)
     assert prod_db.exists(), "Canonical project database must exist"
-    prod_size_before = prod_db.stat().st_size
+    prod_state_before = get_sqlite_sha256_state(prod_db)
 
     # 2. Create isolated temporary database path
     temp_db_path = tmp_path / "isolated_empty_civicos.sqlite3"
@@ -82,9 +96,11 @@ def test_isolated_empty_sqlite_database(tmp_path):
         main.operations_service.database_path = orig_ops_path
         main.auth_service.database_path = orig_auth_path
 
-    # 8. Verify the normal project database was untouched
-    prod_size_after = prod_db.stat().st_size
-    assert prod_size_before == prod_size_after, "Production database size must remain completely unchanged"
+    # 8. Verify the normal project database was untouched via SHA-256 hash comparison
+    prod_state_after = get_sqlite_sha256_state(prod_db)
+    assert prod_state_before == prod_state_after, (
+        f"Production database SHA-256 state changed: before={prod_state_before}, after={prod_state_after}"
+    )
 
     # 9. Clean up temporary database handles
     import gc

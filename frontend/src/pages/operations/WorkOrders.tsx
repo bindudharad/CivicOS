@@ -55,11 +55,11 @@ export default function WorkOrders() {
       const matchesSearch =
         wo.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
         wo.incident_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        wo.department.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (wo.department ? wo.department.toLowerCase().includes(searchQuery.toLowerCase()) : false) ||
         (wo.assignee && wo.assignee.toLowerCase().includes(searchQuery.toLowerCase()))
 
       const matchesStatus =
-        statusFilter === 'All' || wo.status.toLowerCase() === statusFilter.toLowerCase()
+        statusFilter === 'All' || (wo.status ? wo.status.toLowerCase() === statusFilter.toLowerCase() : false)
 
       return matchesSearch && matchesStatus
     })
@@ -126,7 +126,8 @@ export default function WorkOrders() {
     }
   }
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string | null) => {
+    if (!status) return <Badge variant="cyan" dot>Unknown</Badge>
     const s = status.toLowerCase()
     if (s === 'resolved') return <Badge variant="low" dot>Resolved</Badge>
     if (s === 'in_progress') return <Badge variant="high" dot>In Progress</Badge>
@@ -134,7 +135,8 @@ export default function WorkOrders() {
     return <Badge variant="cyan" dot>Open</Badge>
   }
 
-  const formatDate = (isoString: string) => {
+  const formatDate = (isoString: string | null) => {
+    if (!isoString) return 'Date unavailable'
     try {
       const d = new Date(isoString)
       return d.toLocaleDateString('en-IN', {
@@ -144,7 +146,7 @@ export default function WorkOrders() {
         minute: '2-digit',
       })
     } catch {
-      return 'Recently'
+      return 'Date unavailable'
     }
   }
 
@@ -245,7 +247,7 @@ export default function WorkOrders() {
               </thead>
               <tbody className="divide-y divide-border-subtle">
                 {filteredOrders.map((wo) => {
-                  const s = wo.status.toLowerCase()
+                  const s = (wo.status || 'unknown').toLowerCase()
                   return (
                     <tr key={wo.id} className="hover:bg-surface-elevated/40 transition-colors">
                       <td className="py-3.5 px-4 font-mono font-bold text-accent-cyan">
@@ -255,7 +257,7 @@ export default function WorkOrders() {
                         {wo.incident_id}
                       </td>
                       <td className="py-3.5 px-4 font-medium text-text-primary">
-                        {wo.department}
+                        {wo.department || 'Department Unassigned'}
                       </td>
                       <td className="py-3.5 px-4">
                         {getStatusBadge(wo.status)}
