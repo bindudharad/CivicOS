@@ -2,7 +2,7 @@ import React from 'react'
 
 // ─── Button ──────────────────────────────────────────────────────────────────
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'cyan' | 'purple'
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'cyan' | 'purple' | 'outline'
   size?: 'sm' | 'md' | 'lg'
   loading?: boolean
   icon?: React.ReactNode
@@ -31,6 +31,7 @@ export function Button({
     cyan: 'bg-accent-cyan hover:bg-cyan-400 text-bg-midnight font-semibold shadow-glow-cyan focus:ring-accent-cyan active:scale-[0.98]',
     purple: 'bg-accent-violet hover:bg-violet-600 text-white shadow-glow-violet focus:ring-accent-violet active:scale-[0.98]',
     secondary: 'bg-surface-elevated hover:bg-surface-hover text-text-primary border border-border-standard focus:ring-accent-blue',
+    outline: 'bg-transparent hover:bg-surface-elevated text-text-primary border border-border-standard hover:border-accent-cyan/40 focus:ring-accent-cyan',
     ghost: 'hover:bg-surface-elevated text-text-secondary hover:text-text-primary focus:ring-accent-cyan',
     danger: 'bg-severity-critical/20 hover:bg-severity-critical/30 text-severity-critical border border-severity-critical/40 focus:ring-severity-critical',
   }
@@ -57,9 +58,10 @@ interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   className?: string
   glow?: 'cyan' | 'blue' | 'violet' | 'critical' | 'none'
   interactive?: boolean
+  padding?: 'none' | 'sm' | 'md' | 'lg'
 }
 
-export function Card({ children, className = '', glow = 'none', interactive = false, ...props }: CardProps) {
+export function Card({ children, className = '', glow = 'none', interactive = false, padding = 'md', ...props }: CardProps) {
   const glowMap = {
     cyan: 'border-accent-cyan/40 shadow-glow-cyan',
     blue: 'border-accent-blue/40 shadow-glow-blue',
@@ -68,9 +70,16 @@ export function Card({ children, className = '', glow = 'none', interactive = fa
     none: 'border-border-standard',
   }
 
+  const padMap = {
+    none: 'p-0',
+    sm: 'p-3',
+    md: 'p-5',
+    lg: 'p-6',
+  }
+
   return (
     <div
-      className={`rounded-2xl bg-bg-card/90 backdrop-blur-md border ${glowMap[glow]} p-5 shadow-card-elevated ${
+      className={`rounded-2xl bg-bg-card/90 backdrop-blur-md border ${glowMap[glow]} ${padMap[padding]} shadow-card-elevated ${
         interactive ? 'glass-panel-hover cursor-pointer' : ''
       } ${className}`}
       {...props}
@@ -127,12 +136,13 @@ export function Badge({ children, variant = 'neutral', size = 'sm', dot = false,
 // ─── Severity Badge (Distinguishes Missing/Unassessed from Low) ───────────────
 interface SeverityBadgeProps {
   severity: number | null | undefined
+  className?: string
 }
 
-export function SeverityBadge({ severity }: SeverityBadgeProps) {
+export function SeverityBadge({ severity, className = '' }: SeverityBadgeProps) {
   if (severity === null || severity === undefined || isNaN(severity)) {
     return (
-      <Badge variant="neutral" dot>
+      <Badge variant="neutral" dot className={className}>
         Unassessed
       </Badge>
     )
@@ -140,15 +150,15 @@ export function SeverityBadge({ severity }: SeverityBadgeProps) {
 
   const score = Number(severity)
   if (score >= 8.0) {
-    return <Badge variant="critical" dot>Critical ({score.toFixed(1)})</Badge>
+    return <Badge variant="critical" dot className={className}>Critical ({score.toFixed(1)})</Badge>
   }
   if (score >= 6.0) {
-    return <Badge variant="high" dot>High ({score.toFixed(1)})</Badge>
+    return <Badge variant="high" dot className={className}>High ({score.toFixed(1)})</Badge>
   }
   if (score >= 4.0) {
-    return <Badge variant="medium" dot>Medium ({score.toFixed(1)})</Badge>
+    return <Badge variant="medium" dot className={className}>Medium ({score.toFixed(1)})</Badge>
   }
-  return <Badge variant="low" dot>Low ({score.toFixed(1)})</Badge>
+  return <Badge variant="low" dot className={className}>Low ({score.toFixed(1)})</Badge>
 }
 
 // ─── KPI Card ────────────────────────────────────────────────────────────────

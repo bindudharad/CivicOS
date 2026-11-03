@@ -89,7 +89,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 CivicOS
               </span>
               <span className="text-[10px] tracking-widest text-text-muted uppercase font-mono">
-                Urban Pulse v2.0
+                Urban Pulse v3.0
               </span>
             </div>
           )}

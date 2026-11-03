@@ -34,6 +34,7 @@ api.interceptors.response.use(
 export interface NormalizedIncident {
   id: string
   title: string
+  description?: string
   incident_type: string
   category: string
   zone: string
@@ -50,6 +51,7 @@ export interface NormalizedIncident {
 export function normalizeIncident(raw: any): NormalizedIncident {
   const id = String(raw?.id ?? raw?.incident_id ?? 'N/A')
   const title = String(raw?.title ?? raw?.description?.slice(0, 45) ?? 'Urban Incident')
+  const description = String(raw?.description ?? raw?.title ?? 'No detailed description recorded.')
   const incident_type = String(raw?.incident_type ?? raw?.category ?? 'Incident')
   const category = String(raw?.category ?? 'General')
   const zone = String(raw?.zone ?? raw?.ward ?? 'Central Zone')
@@ -77,6 +79,7 @@ export function normalizeIncident(raw: any): NormalizedIncident {
   return {
     id,
     title,
+    description,
     incident_type,
     category,
     zone,
@@ -114,6 +117,30 @@ export function normalizeWorkOrder(raw: any): NormalizedWorkOrder {
     resolution_evidence: raw?.resolution_evidence ? String(raw.resolution_evidence) : null,
     created_at: raw?.created_at ?? new Date().toISOString(),
     updated_at: raw?.updated_at ?? new Date().toISOString(),
+  }
+}
+
+export interface NormalizedHotspot {
+  cluster_id: number
+  center_lat: number
+  center_lon: number
+  incident_count: number
+  avg_severity: number
+  dominant_type: string
+  zone: string
+  raw?: any
+}
+
+export function normalizeHotspot(raw: any): NormalizedHotspot {
+  return {
+    cluster_id: Number(raw?.cluster_id ?? 0),
+    center_lat: Number(raw?.center_latitude ?? raw?.center_lat ?? 12.9716),
+    center_lon: Number(raw?.center_longitude ?? raw?.center_lon ?? 77.5946),
+    incident_count: Number(raw?.incident_count ?? 1),
+    avg_severity: Number(raw?.average_severity ?? raw?.avg_severity ?? 6.0),
+    dominant_type: String(raw?.dominant_incident_type ?? raw?.dominant_type ?? 'Urban Hazard'),
+    zone: String(Array.isArray(raw?.zones_covered) && raw.zones_covered.length > 0 ? raw.zones_covered[0] : (raw?.zone ?? 'Central Zone')),
+    raw,
   }
 }
 
