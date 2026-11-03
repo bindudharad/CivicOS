@@ -1,269 +1,345 @@
-import { ReactNode } from 'react'
-import clsx from 'clsx'
+import React from 'react'
 
 // ─── Button ──────────────────────────────────────────────────────────────────
-interface ButtonProps {
-  children: ReactNode
-  variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'icon'
+interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'cyan' | 'purple'
   size?: 'sm' | 'md' | 'lg'
-  onClick?: () => void
-  type?: 'button' | 'submit' | 'reset'
-  disabled?: boolean
-  className?: string
   loading?: boolean
+  icon?: React.ReactNode
 }
 
 export function Button({
-  children, variant = 'primary', size = 'md',
-  onClick, type = 'button', disabled, className, loading
+  children,
+  variant = 'primary',
+  size = 'md',
+  loading = false,
+  icon,
+  className = '',
+  disabled,
+  ...props
 }: ButtonProps) {
-  const base = 'inline-flex items-center justify-center gap-2 font-medium rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-bg-main disabled:opacity-50 disabled:cursor-not-allowed no-select'
+  const base = 'inline-flex items-center justify-center font-medium rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-bg-midnight disabled:opacity-50 disabled:cursor-not-allowed select-none'
+
   const sizes = {
-    sm: 'px-3 py-1.5 text-xs',
-    md: 'px-4 py-2 text-sm',
-    lg: 'px-6 py-3 text-base',
+    sm: 'px-3 py-1.5 text-xs gap-1.5',
+    md: 'px-4 py-2 text-sm gap-2',
+    lg: 'px-5 py-2.5 text-base gap-2.5',
   }
+
   const variants = {
-    primary: 'bg-accent-cyan text-bg-main hover:bg-accent-deep-cyan focus:ring-accent-cyan shadow-lg hover:shadow-accent-cyan/30',
-    secondary: 'bg-surface-interactive text-text-primary hover:bg-surface-elevated border border-border-standard focus:ring-accent-cyan',
-    danger: 'bg-status-critical/10 text-status-critical hover:bg-status-critical hover:text-white border border-status-critical/50 focus:ring-status-critical',
-    ghost: 'text-text-secondary hover:text-text-primary hover:bg-surface-interactive focus:ring-accent-cyan',
-    icon: 'p-2 text-text-muted hover:text-text-primary hover:bg-surface-interactive rounded-lg focus:ring-accent-cyan',
+    primary: 'bg-accent-blue hover:bg-blue-600 text-white shadow-glow-blue focus:ring-accent-blue active:scale-[0.98]',
+    cyan: 'bg-accent-cyan hover:bg-cyan-400 text-bg-midnight font-semibold shadow-glow-cyan focus:ring-accent-cyan active:scale-[0.98]',
+    purple: 'bg-accent-violet hover:bg-violet-600 text-white shadow-glow-violet focus:ring-accent-violet active:scale-[0.98]',
+    secondary: 'bg-surface-elevated hover:bg-surface-hover text-text-primary border border-border-standard focus:ring-accent-blue',
+    ghost: 'hover:bg-surface-elevated text-text-secondary hover:text-text-primary focus:ring-accent-cyan',
+    danger: 'bg-severity-critical/20 hover:bg-severity-critical/30 text-severity-critical border border-severity-critical/40 focus:ring-severity-critical',
   }
+
   return (
     <button
-      type={type}
-      onClick={onClick}
+      className={`${base} ${sizes[size]} ${variants[variant]} ${className}`}
       disabled={disabled || loading}
-      className={clsx(base, sizes[size], variants[variant], className)}
+      {...props}
     >
-      {loading ? <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : null}
+      {loading ? (
+        <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+      ) : (
+        icon
+      )}
       {children}
     </button>
   )
 }
 
-// ─── Card ─────────────────────────────────────────────────────────────────────
-interface CardProps {
-  children: ReactNode
+// ─── Card ────────────────────────────────────────────────────────────────────
+interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+  children: React.ReactNode
   className?: string
-  hover?: boolean
-  glow?: 'cyan' | 'blue' | 'none'
-  onClick?: () => void
+  glow?: 'cyan' | 'blue' | 'violet' | 'critical' | 'none'
+  interactive?: boolean
 }
 
-export function Card({ children, className, hover, glow = 'none', onClick }: CardProps) {
+export function Card({ children, className = '', glow = 'none', interactive = false, ...props }: CardProps) {
+  const glowMap = {
+    cyan: 'border-accent-cyan/40 shadow-glow-cyan',
+    blue: 'border-accent-blue/40 shadow-glow-blue',
+    violet: 'border-accent-violet/40 shadow-glow-violet',
+    critical: 'border-severity-critical/40 shadow-glow-critical',
+    none: 'border-border-standard',
+  }
+
   return (
     <div
-      onClick={onClick}
-      className={clsx(
-        'rounded-xl border bg-surface-card p-5',
-        'border-border-subtle',
-        hover && 'card-hover cursor-pointer',
-        glow === 'cyan' && 'glow-cyan',
-        glow === 'blue' && 'glow-blue',
-        className
-      )}
+      className={`rounded-2xl bg-bg-card/90 backdrop-blur-md border ${glowMap[glow]} p-5 shadow-card-elevated ${
+        interactive ? 'glass-panel-hover cursor-pointer' : ''
+      } ${className}`}
+      {...props}
     >
       {children}
     </div>
   )
 }
 
-// ─── Badge ────────────────────────────────────────────────────────────────────
+// ─── Badge ───────────────────────────────────────────────────────────────────
 interface BadgeProps {
-  children: ReactNode
-  variant?: 'cyan' | 'blue' | 'critical' | 'high' | 'medium' | 'low' | 'neutral' | 'purple'
+  children: React.ReactNode
+  variant?: 'cyan' | 'blue' | 'purple' | 'critical' | 'high' | 'medium' | 'low' | 'neutral'
   size?: 'sm' | 'md'
   dot?: boolean
+  className?: string
 }
 
-export function Badge({ children, variant = 'neutral', size = 'sm', dot }: BadgeProps) {
+export function Badge({ children, variant = 'neutral', size = 'sm', dot = false, className = '' }: BadgeProps) {
   const variants = {
     cyan: 'bg-accent-cyan/15 text-accent-cyan border-accent-cyan/30',
     blue: 'bg-accent-blue/15 text-accent-blue border-accent-blue/30',
-    critical: 'bg-status-critical/15 text-status-critical border-status-critical/30',
-    high: 'bg-status-high/15 text-status-high border-status-high/30',
-    medium: 'bg-status-medium/15 text-status-medium border-status-medium/30',
-    low: 'bg-status-low/15 text-status-low border-status-low/30',
-    neutral: 'bg-surface-elevated text-text-secondary border-border-standard',
-    purple: 'bg-accent-purple/15 text-accent-purple border-accent-purple/30',
+    purple: 'bg-accent-violet/15 text-accent-violet border-accent-violet/30',
+    critical: 'bg-severity-critical/15 text-severity-critical border-severity-critical/30',
+    high: 'bg-severity-high/15 text-severity-high border-severity-high/30',
+    medium: 'bg-severity-medium/15 text-severity-medium border-severity-medium/30',
+    low: 'bg-severity-low/15 text-severity-low border-severity-low/30',
+    neutral: 'bg-surface-elevated text-text-secondary border-border-subtle',
   }
-  const sizes = { sm: 'px-2 py-0.5 text-xs', md: 'px-3 py-1 text-sm' }
+
+  const dotColors = {
+    cyan: 'bg-accent-cyan',
+    blue: 'bg-accent-blue',
+    purple: 'bg-accent-violet',
+    critical: 'bg-severity-critical',
+    high: 'bg-severity-high',
+    medium: 'bg-severity-medium',
+    low: 'bg-severity-low',
+    neutral: 'bg-text-muted',
+  }
+
   return (
-    <span className={clsx('inline-flex items-center gap-1.5 rounded-full border font-medium', variants[variant], sizes[size])}>
-      {dot && <span className={clsx('w-1.5 h-1.5 rounded-full', {
-        'bg-accent-cyan': variant === 'cyan',
-        'bg-accent-blue': variant === 'blue',
-        'bg-status-critical': variant === 'critical',
-        'bg-status-high': variant === 'high',
-        'bg-status-medium': variant === 'medium',
-        'bg-status-low': variant === 'low',
-        'bg-text-muted': variant === 'neutral',
-        'bg-accent-purple': variant === 'purple',
-      })} />}
+    <span
+      className={`inline-flex items-center gap-1.5 font-medium border rounded-full ${
+        size === 'sm' ? 'px-2.5 py-0.5 text-xs' : 'px-3 py-1 text-sm'
+      } ${variants[variant]} ${className}`}
+    >
+      {dot && <span className={`w-1.5 h-1.5 rounded-full ${dotColors[variant]}`} />}
       {children}
     </span>
   )
 }
 
-// ─── SeverityBadge ────────────────────────────────────────────────────────────
-export function SeverityBadge({ severity }: { severity: number }) {
-  if (severity >= 8) return <Badge variant="critical" dot>Critical ({severity})</Badge>
-  if (severity >= 6) return <Badge variant="high" dot>High ({severity})</Badge>
-  if (severity >= 4) return <Badge variant="medium" dot>Medium ({severity})</Badge>
-  return <Badge variant="low" dot>Low ({severity})</Badge>
+// ─── Severity Badge (Distinguishes Missing/Unassessed from Low) ───────────────
+interface SeverityBadgeProps {
+  severity: number | null | undefined
 }
 
-// ─── KPI Card ─────────────────────────────────────────────────────────────────
+export function SeverityBadge({ severity }: SeverityBadgeProps) {
+  if (severity === null || severity === undefined || isNaN(severity)) {
+    return (
+      <Badge variant="neutral" dot>
+        Unassessed
+      </Badge>
+    )
+  }
+
+  const score = Number(severity)
+  if (score >= 8.0) {
+    return <Badge variant="critical" dot>Critical ({score.toFixed(1)})</Badge>
+  }
+  if (score >= 6.0) {
+    return <Badge variant="high" dot>High ({score.toFixed(1)})</Badge>
+  }
+  if (score >= 4.0) {
+    return <Badge variant="medium" dot>Medium ({score.toFixed(1)})</Badge>
+  }
+  return <Badge variant="low" dot>Low ({score.toFixed(1)})</Badge>
+}
+
+// ─── KPI Card ────────────────────────────────────────────────────────────────
 interface KPICardProps {
   title: string
   value: string | number
   subtitle?: string
-  icon: ReactNode
-  trend?: { value: number; label: string }
-  color?: 'cyan' | 'blue' | 'critical' | 'high' | 'medium' | 'low' | 'purple' | 'neutral'
-  loading?: boolean
+  change?: string
+  changeType?: 'positive' | 'negative' | 'neutral'
+  icon?: React.ReactNode
+  color?: 'cyan' | 'blue' | 'purple' | 'critical' | 'high' | 'low'
+  className?: string
 }
 
-export function KPICard({ title, value, subtitle, icon, trend, color = 'cyan', loading }: KPICardProps) {
-  const colorMap: Record<string, { bg: string; text: string; border: string }> = {
-    cyan: { bg: 'bg-accent-cyan/10', text: 'text-accent-cyan', border: 'border-accent-cyan/20' },
-    blue: { bg: 'bg-accent-blue/10', text: 'text-accent-blue', border: 'border-accent-blue/20' },
-    critical: { bg: 'bg-status-critical/10', text: 'text-status-critical', border: 'border-status-critical/20' },
-    high: { bg: 'bg-status-high/10', text: 'text-status-high', border: 'border-status-high/20' },
-    medium: { bg: 'bg-status-medium/10', text: 'text-status-medium', border: 'border-status-medium/20' },
-    low: { bg: 'bg-status-low/10', text: 'text-status-low', border: 'border-status-low/20' },
-    purple: { bg: 'bg-accent-purple/10', text: 'text-accent-purple', border: 'border-accent-purple/20' },
-    neutral: { bg: 'bg-surface-elevated', text: 'text-text-secondary', border: 'border-border-standard' },
+export function KPICard({
+  title,
+  value,
+  subtitle,
+  change,
+  changeType = 'neutral',
+  icon,
+  color = 'cyan',
+  className = '',
+}: KPICardProps) {
+  const accentGlow = {
+    cyan: 'text-accent-cyan border-accent-cyan/20 bg-accent-cyan/5',
+    blue: 'text-accent-blue border-accent-blue/20 bg-accent-blue/5',
+    purple: 'text-accent-violet border-accent-violet/20 bg-accent-violet/5',
+    critical: 'text-severity-critical border-severity-critical/20 bg-severity-critical/5',
+    high: 'text-severity-high border-severity-high/20 bg-severity-high/5',
+    low: 'text-severity-low border-severity-low/20 bg-severity-low/5',
   }
-  const c = colorMap[color] || colorMap.cyan
+
   return (
-    <div className={clsx('rounded-xl border p-5 bg-surface-card transition-all duration-200 hover:border-border-standard', c.border)}>
-      <div className="flex items-start justify-between mb-4">
-        <div className={clsx('p-2.5 rounded-lg', c.bg)}>
-          <span className={clsx('w-5 h-5', c.text)}>{icon}</span>
+    <Card className={`relative overflow-hidden group hover:border-accent-${color}/40 transition-all duration-300 ${className}`}>
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-1">{title}</p>
+          <p className="text-2xl lg:text-3xl font-extrabold text-text-primary tracking-tight font-mono">{value}</p>
+          {subtitle && <p className="text-xs text-text-secondary mt-1">{subtitle}</p>}
+          {change && (
+            <p
+              className={`text-xs mt-1.5 font-medium flex items-center gap-1 ${
+                changeType === 'positive'
+                  ? 'text-severity-low'
+                  : changeType === 'negative'
+                  ? 'text-severity-critical'
+                  : 'text-text-muted'
+              }`}
+            >
+              {change}
+            </p>
+          )}
         </div>
-        {trend && (
-          <span className={clsx('text-xs font-medium px-2 py-1 rounded-full', 
-            trend.value >= 0 ? 'text-status-low bg-status-low/10' : 'text-status-critical bg-status-critical/10'
-          )}>
-            {trend.value >= 0 ? '+' : ''}{trend.value}% {trend.label}
-          </span>
+        {icon && (
+          <div className={`p-3 rounded-xl border ${accentGlow[color]} flex items-center justify-center text-xl`}>
+            {icon}
+          </div>
         )}
       </div>
-      {loading ? (
-        <div className="space-y-2">
-          <div className="h-7 w-24 shimmer rounded" />
-          <div className="h-4 w-32 shimmer rounded" />
-        </div>
-      ) : (
-        <>
-          <div className={clsx('text-2xl font-bold', c.text)}>{value}</div>
-          <div className="text-sm text-text-secondary mt-1">{title}</div>
-          {subtitle && <div className="text-xs text-text-muted mt-0.5">{subtitle}</div>}
-        </>
+    </Card>
+  )
+}
+
+// ─── Input ───────────────────────────────────────────────────────────────────
+interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  label?: string
+  error?: string
+  hint?: string
+}
+
+export function Input({ label, error, hint, className = '', id, ...props }: InputProps) {
+  const inputId = id || (label ? label.toLowerCase().replace(/\s+/g, '-') : undefined)
+
+  return (
+    <div className="space-y-1.5">
+      {label && (
+        <label htmlFor={inputId} className="block text-xs font-semibold uppercase tracking-wider text-text-muted">
+          {label}
+        </label>
+      )}
+      <input
+        id={inputId}
+        className={`w-full bg-surface-elevated border ${
+          error ? 'border-severity-critical focus:ring-severity-critical' : 'border-border-standard'
+        } rounded-xl px-3.5 py-2.5 text-sm text-text-primary placeholder:text-text-dim input-focus ${className}`}
+        {...props}
+      />
+      {error && <p className="text-xs text-severity-critical flex items-center gap-1">⚠ {error}</p>}
+      {hint && !error && <p className="text-xs text-text-muted">{hint}</p>}
+    </div>
+  )
+}
+
+// ─── Select ──────────────────────────────────────────────────────────────────
+interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
+  label?: string
+  error?: string
+  children: React.ReactNode
+}
+
+export function Select({ label, error, children, className = '', id, ...props }: SelectProps) {
+  const selectId = id || (label ? label.toLowerCase().replace(/\s+/g, '-') : undefined)
+
+  return (
+    <div className="space-y-1.5">
+      {label && (
+        <label htmlFor={selectId} className="block text-xs font-semibold uppercase tracking-wider text-text-muted">
+          {label}
+        </label>
+      )}
+      <select
+        id={selectId}
+        className={`w-full bg-surface-elevated border ${
+          error ? 'border-severity-critical' : 'border-border-standard'
+        } rounded-xl px-3.5 py-2.5 text-sm text-text-primary input-focus ${className}`}
+        {...props}
+      >
+        {children}
+      </select>
+      {error && <p className="text-xs text-severity-critical flex items-center gap-1">⚠ {error}</p>}
+    </div>
+  )
+}
+
+// ─── Loading / Error / Empty States ──────────────────────────────────────────
+export function LoadingState({ message = 'Loading intelligence...' }: { message?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 gap-3">
+      <div className="relative">
+        <div className="w-10 h-10 border-2 border-accent-cyan/20 border-t-accent-cyan rounded-full animate-spin" />
+        <div className="absolute inset-0 w-10 h-10 border-2 border-accent-blue/30 border-b-accent-blue rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }} />
+      </div>
+      <p className="text-sm font-medium text-text-muted tracking-wide animate-pulse">{message}</p>
+    </div>
+  )
+}
+
+export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
+      <div className="w-12 h-12 rounded-2xl bg-severity-critical/10 border border-severity-critical/20 flex items-center justify-center text-severity-critical text-xl font-bold">
+        !
+      </div>
+      <div>
+        <p className="text-sm font-semibold text-text-primary">Operational Error</p>
+        <p className="text-xs text-text-secondary mt-1 max-w-sm">{message}</p>
+      </div>
+      {onRetry && (
+        <Button variant="secondary" size="sm" onClick={onRetry}>
+          Try Again
+        </Button>
       )}
     </div>
   )
 }
 
-// ─── Input ────────────────────────────────────────────────────────────────────
-interface InputProps {
-  label?: string
-  value: string | number
-  onChange: (v: string) => void
-  type?: string
-  placeholder?: string
-  required?: boolean
-  className?: string
-  min?: number
-  max?: number
-  step?: number
-}
-
-export function Input({ label, value, onChange, type = 'text', placeholder, required, className, min, max, step }: InputProps) {
+export function EmptyState({ title, description, action }: { title: string; description: string; action?: React.ReactNode }) {
   return (
-    <div className={clsx('space-y-1', className)}>
-      {label && <label className="block text-xs font-medium text-text-secondary uppercase tracking-wider">{label}</label>}
-      <input
-        type={type}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder={placeholder}
-        required={required}
-        min={min} max={max} step={step}
-        className="w-full bg-surface-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted input-focus"
-      />
-    </div>
-  )
-}
-
-// ─── Select ───────────────────────────────────────────────────────────────────
-interface SelectProps {
-  label?: string
-  value: string
-  onChange: (v: string) => void
-  options: { value: string; label: string }[]
-  className?: string
-}
-
-export function Select({ label, value, onChange, options, className }: SelectProps) {
-  return (
-    <div className={clsx('space-y-1', className)}>
-      {label && <label className="block text-xs font-medium text-text-secondary uppercase tracking-wider">{label}</label>}
-      <select
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className="w-full bg-surface-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus appearance-none cursor-pointer"
-      >
-        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-    </div>
-  )
-}
-
-// ─── Loading State ────────────────────────────────────────────────────────────
-export function LoadingState({ message = 'Loading...' }: { message?: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 gap-4">
-      <div className="w-10 h-10 border-2 border-accent-cyan border-t-transparent rounded-full animate-spin" />
-      <p className="text-text-muted text-sm">{message}</p>
-    </div>
-  )
-}
-
-// ─── Empty State ──────────────────────────────────────────────────────────────
-export function EmptyState({ title, message, icon }: { title: string; message?: string; icon?: ReactNode }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
-      {icon && <div className="text-text-muted text-4xl mb-2">{icon}</div>}
-      <h3 className="text-text-secondary font-medium">{title}</h3>
-      {message && <p className="text-text-muted text-sm max-w-sm">{message}</p>}
-    </div>
-  )
-}
-
-// ─── Error State ──────────────────────────────────────────────────────────────
-export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
-      <div className="w-12 h-12 rounded-full bg-status-critical/10 flex items-center justify-center text-status-critical text-xl">⚠</div>
-      <p className="text-text-secondary text-sm max-w-sm">{message}</p>
-      {onRetry && <Button variant="secondary" size="sm" onClick={onRetry}>Retry</Button>}
-    </div>
-  )
-}
-
-// ─── Section Header ───────────────────────────────────────────────────────────
-export function SectionHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: ReactNode }) {
-  return (
-    <div className="flex items-start justify-between mb-6">
-      <div>
-        <h2 className="text-xl font-semibold text-text-primary">{title}</h2>
-        {subtitle && <p className="text-sm text-text-muted mt-1">{subtitle}</p>}
+    <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+      <div className="w-12 h-12 rounded-2xl bg-surface-elevated border border-border-standard flex items-center justify-center text-text-muted text-xl">
+        ⬚
       </div>
-      {action}
+      <div>
+        <p className="text-sm font-semibold text-text-primary">{title}</p>
+        <p className="text-xs text-text-secondary mt-1 max-w-xs">{description}</p>
+      </div>
+      {action && <div className="mt-2">{action}</div>}
+    </div>
+  )
+}
+
+// ─── Section Header ──────────────────────────────────────────────────────────
+interface SectionHeaderProps {
+  title: string
+  subtitle?: string
+  action?: React.ReactNode
+  badge?: string
+}
+
+export function SectionHeader({ title, subtitle, action, badge }: SectionHeaderProps) {
+  return (
+    <div className="flex items-center justify-between mb-4">
+      <div>
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg lg:text-xl font-bold text-text-primary tracking-tight">{title}</h2>
+          {badge && <Badge variant="cyan">{badge}</Badge>}
+        </div>
+        {subtitle && <p className="text-xs text-text-muted mt-0.5">{subtitle}</p>}
+      </div>
+      {action && <div>{action}</div>}
     </div>
   )
 }

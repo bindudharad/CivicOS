@@ -1,69 +1,78 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
   theme: {
     extend: {
       colors: {
         bg: {
-          main: '#07111F',
-          secondary: '#0A1625',
-          elevated: '#101F30',
+          midnight: '#080D1B',
+          navy: '#101A32',
+          elevated: '#172443',
+          card: '#121D38',
+          glass: 'rgba(16, 26, 50, 0.75)',
         },
         surface: {
-          card: '#102235',
-          elevated: '#142A3D',
-          interactive: '#193249',
-        },
-        border: {
-          standard: '#243B50',
-          subtle: '#1B3043',
-        },
-        text: {
-          primary: '#F0F6FC',
-          secondary: '#A4B5C7',
-          muted: '#73889D',
+          base: '#0B132B',
+          card: '#121E3B',
+          elevated: '#1A294C',
+          hover: '#223663',
+          border: 'rgba(57, 123, 255, 0.18)',
         },
         accent: {
-          cyan: '#36D6CC',
-          'deep-cyan': '#16A6B3',
-          blue: '#5B9EFF',
-          purple: '#8B5CF6',
+          blue: '#397BFF',
+          cyan: '#34D9E8',
+          turquoise: '#35E5C5',
+          violet: '#8B72FF',
+          magenta: '#C26CFF',
         },
-        status: {
-          critical: '#FF5364',
-          high: '#FF9955',
-          medium: '#F3C767',
-          low: '#46C99A',
-          info: '#5B9EFF',
+        severity: {
+          critical: '#FF5577',
+          high: '#FF9B55',
+          medium: '#F4C76A',
+          low: '#45D6A1',
+          unassessed: '#64748B',
         },
+        text: {
+          primary: '#F8FAFC',
+          secondary: '#94A3B8',
+          muted: '#64748B',
+          dim: '#475569',
+        },
+        border: {
+          subtle: 'rgba(255, 255, 255, 0.08)',
+          standard: 'rgba(57, 123, 255, 0.22)',
+          highlight: 'rgba(52, 217, 232, 0.45)',
+        }
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+        mono: ['"JetBrains Mono"', 'monospace'],
+      },
+      boxShadow: {
+        'glow-cyan': '0 0 25px -5px rgba(52, 217, 232, 0.35)',
+        'glow-blue': '0 0 25px -5px rgba(57, 123, 255, 0.35)',
+        'glow-violet': '0 0 25px -5px rgba(139, 114, 255, 0.35)',
+        'glow-critical': '0 0 25px -5px rgba(255, 85, 119, 0.4)',
+        'card-elevated': '0 12px 32px -8px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(57, 123, 255, 0.15)',
       },
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-        'glow': 'glow 2s ease-in-out infinite alternate',
-        'float': 'float 6s ease-in-out infinite',
-        'scanline': 'scanline 8s linear infinite',
+        'beacon': 'beacon 2s cubic-bezier(0, 0, 0.2, 1) infinite',
+        'float': 'float 4s ease-in-out infinite',
       },
       keyframes: {
-        glow: {
-          '0%': { boxShadow: '0 0 5px rgba(54, 214, 204, 0.3)' },
-          '100%': { boxShadow: '0 0 20px rgba(54, 214, 204, 0.8), 0 0 40px rgba(54, 214, 204, 0.3)' },
+        beacon: {
+          '0%': { transform: 'scale(1)', opacity: '0.8' },
+          '100%': { transform: 'scale(2.4)', opacity: '0' },
         },
         float: {
-          '0%, 100%': { transform: 'translateY(0px)' },
-          '50%': { transform: 'translateY(-10px)' },
-        },
-        scanline: {
-          '0%': { transform: 'translateY(-100%)' },
-          '100%': { transform: 'translateY(100vh)' },
-        },
-      },
-      backdropBlur: {
-        xs: '2px',
-      },
+          '0%, 100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-6px)' },
+        }
+      }
     },
   },
   plugins: [],

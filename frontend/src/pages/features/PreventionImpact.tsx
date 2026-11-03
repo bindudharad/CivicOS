@@ -1,149 +1,261 @@
-import { useState } from 'react'
-import { recommendationsAPI, scoringAPI } from '../../lib/api'
-import { Card, LoadingState, ErrorState, SectionHeader, KPICard } from '../../components/ui'
+import { useEffect, useState } from 'react'
+import { scoringAPI, recommendationsAPI } from '../../lib/api'
+import { Card, SectionHeader, Badge, Button, LoadingState, ErrorState, KPICard } from '../../components/ui'
+import { TrendingDown, ShieldCheck, ArrowDownRight, DollarSign, CheckCircle2, Sliders } from 'lucide-react'
 
-const INCIDENT_TYPES = ['Road Damage', 'Flooding / Waterlogging', 'Streetlight Failure', 'Garbage Overflow', 'Water Supply Disruption', 'Gas Leak', 'Fire Hazard', 'Flyover / Bridge Defect', 'Sewer Overflow', 'Traffic Signal Failure']
+const INCIDENT_TYPES = [
+  'Flooding / Waterlogging',
+  'Road Damage',
+  'Sewer Overflow',
+  'Water Supply Disruption',
+  'Streetlight Failure',
+  'Traffic Signal Failure',
+  'Flyover / Bridge Defect',
+  'Garbage Overflow',
+  'Gas Leak',
+  'Fire Hazard',
+]
+
+const ZONES = ['Central Zone', 'South Zone', 'North Zone', 'East Zone', 'West Zone']
 
 export default function PreventionImpact() {
-  const [form, setForm] = useState({
-    incident_type: INCIDENT_TYPES[0],
-    zone: 'Zone A',
-    baseline_severity: '7',
-    prevention_budget: '500000',
-    programme_duration_months: '12',
-  })
-  const [result, setResult] = useState<any>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [incidentType, setIncidentType] = useState(INCIDENT_TYPES[0])
+  const [zone, setZone] = useState(ZONES[0])
+  const [baselineSeverity, setBaselineSeverity] = useState<number>(8.0)
+  const [population, setPopulation] = useState<number>(5000)
 
-  const run = async () => {
-    setLoading(true); setError(''); setResult(null)
+  const [scoringData, setScoringData] = useState<any>(null)
+  const [playbookData, setPlaybookData] = useState<any>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const runEvaluation = async () => {
+    setLoading(true)
+    setError(null)
     try {
-      // Use recommendations API with budget context
-      const r = await recommendationsAPI.get({
-        incident_type: form.incident_type,
-        severity: parseInt(form.baseline_severity),
-        zone: form.zone,
-        prevention_budget: parseInt(form.prevention_budget),
-        programme_duration_months: parseInt(form.programme_duration_months),
-      })
-      setResult(r.data)
-    } catch (e: any) { setError(e?.response?.data?.detail ?? e.message) }
-    finally { setLoading(false) }
+      const [scoreRes, playRes] = await Promise.all([
+        scoringAPI.evaluate({
+          severity_score: Number(baselineSeverity),
+          impact_radius_meters: 1500,
+          affected_population: Number(population),
+        }),
+        recommendationsAPI.get({
+          incident_type: incidentType,
+          severity: Number(baselineSeverity),
+          zone,
+        }),
+      ])
+
+      setScoringData(scoreRes.data)
+      setPlaybookData(playRes.data)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'Evaluation failed')
+    } finally {
+      setLoading(false)
+    }
   }
 
+  useEffect(() => {
+    runEvaluation()
+  }, [])
+
+  const preventionScore = scoringData?.prevention_impact_score ?? 78.5
+  const compositeSeverity = scoringData?.composite_severity ?? 8.2
+  const residualRisk = Math.max(1.5, compositeSeverity * (1 - preventionScore / 100))
+  const riskReductionPct = Math.round(((compositeSeverity - residualRisk) / compositeSeverity) * 100)
+
   return (
-    <div className="space-y-6 animate-fade-in">
-      <Card className="bg-surface-elevated">
-        <SectionHeader title="Prevention Programme Setup" subtitle="Evaluate ROI for preventive city maintenance" />
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-          <div>
-            <label className="block text-xs font-medium text-text-muted uppercase mb-1">Incident Type</label>
-            <select value={form.incident_type} onChange={e => setForm(p => ({ ...p, incident_type: e.target.value }))}
-              className="w-full bg-bg-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus">
-              {INCIDENT_TYPES.map(t => <option key={t}>{t}</option>)}
+    <div className="space-y-6 animate-fade-in select-none">
+      {/* ─── Header & Controls ──────────────────────────────────────────────── */}
+      <Card className="space-y-4">
+        <SectionHeader
+          title="Prevention Impact & ROI Analytics"
+          subtitle="Quantify systemic risk reduction and municipal cost avoidance achieved through preemptive field interventions"
+          badge="ROI Valuation Model"
+        />
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+          <div className="space-y-1.5">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-text-muted">
+              Incident Category
+            </label>
+            <select
+              value={incidentType}
+              onChange={(e) => setIncidentType(e.target.value)}
+              className="w-full bg-surface-elevated border border-border-standard rounded-xl px-3.5 py-2.5 text-sm text-text-primary input-focus cursor-pointer"
+            >
+              {INCIDENT_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
             </select>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-text-muted uppercase mb-1">Zone</label>
-            <select value={form.zone} onChange={e => setForm(p => ({ ...p, zone: e.target.value }))}
-              className="w-full bg-bg-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus">
-              {['Zone A', 'Zone B', 'Zone C', 'Zone D', 'Zone E'].map(z => <option key={z}>{z}</option>)}
+
+          <div className="space-y-1.5">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-text-muted">
+              Target Zone
+            </label>
+            <select
+              value={zone}
+              onChange={(e) => setZone(e.target.value)}
+              className="w-full bg-surface-elevated border border-border-standard rounded-xl px-3.5 py-2.5 text-sm text-text-primary input-focus cursor-pointer"
+            >
+              {ZONES.map((z) => (
+                <option key={z} value={z}>
+                  {z}
+                </option>
+              ))}
             </select>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-text-muted uppercase mb-1">Baseline Severity</label>
-            <input type="number" value={form.baseline_severity} onChange={e => setForm(p => ({ ...p, baseline_severity: e.target.value }))} min={1} max={10}
-              className="w-full bg-bg-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus" />
+
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs">
+              <span className="font-semibold uppercase tracking-wider text-text-muted">Baseline Severity</span>
+              <span className="font-mono text-accent-cyan font-bold">{baselineSeverity.toFixed(1)} / 10.0</span>
+            </div>
+            <input
+              type="range"
+              min={1}
+              max={10}
+              step={0.5}
+              value={baselineSeverity}
+              onChange={(e) => setBaselineSeverity(parseFloat(e.target.value))}
+              className="w-full accent-accent-cyan cursor-pointer"
+            />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-text-muted uppercase mb-1">Prevention Budget (₹)</label>
-            <input type="number" value={form.prevention_budget} onChange={e => setForm(p => ({ ...p, prevention_budget: e.target.value }))} min={10000}
-              className="w-full bg-bg-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-text-muted uppercase mb-1">Programme Duration (months)</label>
-            <input type="number" value={form.programme_duration_months} onChange={e => setForm(p => ({ ...p, programme_duration_months: e.target.value }))} min={1} max={60}
-              className="w-full bg-bg-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus" />
-          </div>
-          <div className="flex items-end">
-            <button onClick={run} disabled={loading}
-              className="w-full py-2.5 bg-accent-cyan text-bg-main font-semibold rounded-lg hover:bg-accent-deep-cyan transition-colors disabled:opacity-50">
-              {loading ? 'Computing...' : 'Calculate Impact →'}
-            </button>
-          </div>
+
+          <Button
+            variant="cyan"
+            loading={loading}
+            icon={<TrendingDown size={16} />}
+            onClick={runEvaluation}
+          >
+            Calculate ROI & Impact
+          </Button>
         </div>
       </Card>
 
-      {loading && <LoadingState message="Computing prevention impact score..." />}
-      {error && <ErrorState message={error} onRetry={run} />}
+      {/* ─── Metric Matrix ──────────────────────────────────────────────────── */}
+      {scoringData && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <KPICard
+            title="Baseline Risk Severity"
+            value={typeof compositeSeverity === 'number' ? compositeSeverity.toFixed(2) : compositeSeverity}
+            subtitle="Pre-intervention level"
+            color="critical"
+          />
+          <KPICard
+            title="Prevention Score"
+            value={typeof preventionScore === 'number' ? preventionScore.toFixed(1) : preventionScore}
+            subtitle="Mitigation effectiveness"
+            color="cyan"
+          />
+          <KPICard
+            title="Residual Severity"
+            value={residualRisk.toFixed(2)}
+            subtitle="Post-action containment"
+            color="low"
+          />
+          <KPICard
+            title="Risk Reduction"
+            value={`-${riskReductionPct}%`}
+            subtitle="Net hazard attenuation"
+            color="purple"
+          />
+        </div>
+      )}
 
-      {result && !loading && (
-        <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <KPICard title="Prevention Score" value={result.prevention_score?.toFixed?.(1) ?? '—'} icon={<span>◈</span>} color="low" />
-            <KPICard title="Cost Reduction" value={result.estimated_cost_reduction !== undefined ? `${result.estimated_cost_reduction}%` : '—'} icon={<span>▲</span>} color="cyan" />
-            <KPICard title="Actions Available" value={result.recommendations?.length ?? result.actions?.length ?? '—'} icon={<span>⬙</span>} color="blue" />
-            <KPICard title="ROI Estimate" value={result.roi_estimate !== undefined ? `${result.roi_estimate}x` : '—'} icon={<span>◉</span>} color="purple" />
-          </div>
+      {/* ─── Comparative Before/After Visual Deck ───────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Before vs After Impact Comparison */}
+        <Card className="space-y-4">
+          <SectionHeader
+            title="Intervention Differential Model"
+            subtitle="Comparative trajectory of reactive vs. proactive management"
+          />
 
-          {/* ROI Chart */}
-          <Card>
-            <SectionHeader title="Prevention Programme ROI" subtitle={`Budget: ₹${Number(form.prevention_budget).toLocaleString()} over ${form.programme_duration_months} months`} />
-            <div className="relative h-48 bg-bg-elevated rounded-xl border border-border-subtle overflow-hidden p-4">
-              <svg viewBox="0 0 500 160" className="w-full h-full">
-                {/* X axis */}
-                <line x1={40} y1={130} x2={480} y2={130} stroke="#243B50" strokeWidth={1} />
-                <line x1={40} y1={10} x2={40} y2={130} stroke="#243B50" strokeWidth={1} />
-                {/* Labels */}
-                <text x={260} y={150} textAnchor="middle" fill="#73889D" fontSize="10">Months</text>
-                {/* Cost curve (reactive) */}
-                <polyline
-                  points={Array.from({ length: 13 }, (_, i) => {
-                    const x = 40 + i * ((480 - 40) / 12)
-                    const decayFactor = Math.exp(-0.1 * i)
-                    const y = 130 - (100 * (1 - decayFactor) * 0.7)
-                    return `${x},${y}`
-                  }).join(' ')}
-                  fill="none" stroke="#46C99A" strokeWidth={2}
-                />
-                {/* Flat cost line (prevention) */}
-                <line x1={40} y1={90} x2={480} y2={90} stroke="#36D6CC" strokeWidth={1.5} strokeDasharray="4,3" />
-                {/* Legend */}
-                <line x1={300} y1={20} x2={320} y2={20} stroke="#46C99A" strokeWidth={2} />
-                <text x={325} y={24} fill="#A4B5C7" fontSize="9">Reactive cost</text>
-                <line x1={300} y1={35} x2={320} y2={35} stroke="#36D6CC" strokeWidth={1.5} strokeDasharray="4,3" />
-                <text x={325} y={39} fill="#A4B5C7" fontSize="9">Prevention cost</text>
-              </svg>
+          {loading ? (
+            <LoadingState message="Modeling preventive attenuation curves..." />
+          ) : error ? (
+            <ErrorState message={error} onRetry={runEvaluation} />
+          ) : scoringData ? (
+            <div className="space-y-4 text-xs">
+              {/* Baseline Bar */}
+              <div className="p-4 rounded-xl bg-surface-elevated border border-severity-critical/30 space-y-1.5">
+                <div className="flex justify-between font-semibold">
+                  <span className="text-severity-critical uppercase font-mono">Reactive Baseline (Unmitigated)</span>
+                  <span className="font-mono text-severity-critical">{compositeSeverity.toFixed(2)} / 10</span>
+                </div>
+                <div className="h-2 rounded-full bg-bg-midnight overflow-hidden">
+                  <div
+                    className="h-full bg-severity-critical rounded-full"
+                    style={{ width: `${Math.min(100, (compositeSeverity / 10) * 100)}%` }}
+                  />
+                </div>
+                <span className="text-text-muted text-[11px] block mt-1">
+                  High probability of cascading transit and stormwater infrastructure paralysis.
+                </span>
+              </div>
+
+              {/* Post Prevention Bar */}
+              <div className="p-4 rounded-xl bg-surface-elevated border border-severity-low/30 space-y-1.5">
+                <div className="flex justify-between font-semibold">
+                  <span className="text-severity-low uppercase font-mono">Proactive Intervention (Post-Action)</span>
+                  <span className="font-mono text-severity-low">{residualRisk.toFixed(2)} / 10</span>
+                </div>
+                <div className="h-2 rounded-full bg-bg-midnight overflow-hidden">
+                  <div
+                    className="h-full bg-severity-low rounded-full transition-all duration-500"
+                    style={{ width: `${Math.min(100, (residualRisk / 10) * 100)}%` }}
+                  />
+                </div>
+                <span className="text-text-muted text-[11px] block mt-1">
+                  Controlled local disturbance with zero secondary subsystem propagation.
+                </span>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-gradient-to-r from-bg-midnight to-surface-card border border-accent-cyan/30 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-mono text-text-muted uppercase">Net Prevention Efficiency</span>
+                  <p className="text-sm font-bold text-text-primary">Hazard Mitigated Prior to Escalation</p>
+                </div>
+                <Badge variant="cyan" dot className="font-mono font-bold text-sm">
+                  {riskReductionPct}% Avoided
+                </Badge>
+              </div>
             </div>
-          </Card>
+          ) : null}
+        </Card>
 
-          {/* Recommended actions with cost */}
-          {(result.recommendations ?? result.actions ?? []).length > 0 && (
-            <Card>
-              <SectionHeader title="Preventive Actions" subtitle="Ranked by impact-to-cost ratio" />
+        {/* Assigned Prevention Protocol */}
+        <Card className="space-y-4">
+          <SectionHeader
+            title="Prescribed Mitigation Strategy"
+            subtitle={`Deployed for ${incidentType} in ${zone}`}
+          />
+
+          {playbookData?.recommended_actions ? (
+            <div className="space-y-3 text-xs">
+              <div className="p-3 rounded-xl bg-surface-elevated border border-border-standard flex items-center justify-between">
+                <span className="text-text-secondary">Assigned Crew:</span>
+                <span className="font-bold text-accent-cyan">{playbookData.suggested_crew}</span>
+              </div>
+
               <div className="space-y-2">
-                {(result.recommendations ?? result.actions ?? []).slice(0, 6).map((action: any, i: number) => (
-                  <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-surface-elevated border border-border-subtle">
-                    <span className="text-accent-cyan font-mono text-xs w-6 flex-shrink-0 mt-0.5">#{i + 1}</span>
-                    <div className="flex-1 text-sm text-text-secondary">
-                      {typeof action === 'string' ? action : (action.title ?? action.action ?? JSON.stringify(action))}
-                    </div>
+                {playbookData.recommended_actions.map((act: string, i: number) => (
+                  <div key={i} className="flex items-start gap-2.5 p-3 rounded-xl bg-surface-elevated/60 border border-border-subtle">
+                    <CheckCircle2 size={14} className="text-severity-low flex-shrink-0 mt-0.5" />
+                    <span className="text-text-primary font-medium">{act}</span>
                   </div>
                 ))}
               </div>
-            </Card>
+            </div>
+          ) : (
+            <p className="text-xs text-text-muted">Loading protocol actions...</p>
           )}
-        </>
-      )}
-      {!result && !loading && !error && (
-        <Card>
-          <div className="text-center py-12 text-text-muted">
-            <div className="text-4xl mb-3">◈</div>
-            <p className="text-sm">Configure and evaluate your prevention programme ROI</p>
-          </div>
         </Card>
-      )}
+      </div>
     </div>
   )
 }

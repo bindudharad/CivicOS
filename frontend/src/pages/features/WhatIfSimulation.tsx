@@ -1,154 +1,226 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { simulationAPI } from '../../lib/api'
-import { Card, LoadingState, ErrorState, SectionHeader, KPICard, Badge } from '../../components/ui'
+import { Card, SectionHeader, Badge, Button, LoadingState, ErrorState, KPICard } from '../../components/ui'
+import { Sliders, CloudRain, Zap, TrendingUp, AlertTriangle, ArrowRight, ShieldAlert } from 'lucide-react'
 
-const INCIDENT_TYPES = ['Road Damage', 'Flooding / Waterlogging', 'Streetlight Failure', 'Garbage Overflow', 'Water Supply Disruption', 'Gas Leak', 'Fire Hazard', 'Flyover / Bridge Defect', 'Sewer Overflow', 'Traffic Signal Failure']
+const ZONES = ['South Zone', 'Central Zone', 'East Zone', 'West Zone', 'North Zone']
 
 export default function WhatIfSimulation() {
-  const [form, setForm] = useState({
-    incident_type: INCIDENT_TYPES[0],
-    zone: 'Zone A',
-    severity: '7',
-    response_time_hours: '2',
-    resource_allocation: '50',
-    preventive_measures_active: false,
-    weather_condition: 'clear',
-  })
+  const [additionalRain, setAdditionalRain] = useState<number>(50.0)
+  const [targetZone, setTargetZone] = useState<string>('South Zone')
+
   const [result, setResult] = useState<any>(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
-  const run = async () => {
-    setLoading(true); setError(''); setResult(null)
+  const runSimulation = async () => {
+    setLoading(true)
+    setError(null)
     try {
-      const r = await simulationAPI.whatIf({
-        ...form,
-        severity: parseInt(form.severity),
-        response_time_hours: parseFloat(form.response_time_hours),
-        resource_allocation: parseInt(form.resource_allocation),
+      const res = await simulationAPI.whatIf({
+        additional_rain_mm: Number(additionalRain),
+        target_zone: targetZone,
       })
-      setResult(r.data)
-    } catch (e: any) { setError(e?.response?.data?.detail ?? e.message) }
-    finally { setLoading(false) }
+      setResult(res.data)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'What-If simulation failed')
+    } finally {
+      setLoading(false)
+    }
   }
 
+  useEffect(() => {
+    runSimulation()
+  }, [])
+
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Config */}
-        <Card>
-          <SectionHeader title="Simulation Parameters" subtitle="Define scenario variables" />
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs font-medium text-text-muted uppercase mb-1">Incident Type</label>
-              <select value={form.incident_type} onChange={e => setForm(p => ({ ...p, incident_type: e.target.value }))}
-                className="w-full bg-surface-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus">
-                {INCIDENT_TYPES.map(t => <option key={t}>{t}</option>)}
-              </select>
+    <div className="space-y-6 animate-fade-in select-none">
+      {/* ─── Control Header ─────────────────────────────────────────────────── */}
+      <Card className="space-y-4">
+        <SectionHeader
+          title="What-If Counterfactual Stress Testing Engine"
+          subtitle="Simulate hypothetical meteorological shock and power-grid outage scenarios to forecast infrastructure tipping points"
+          badge="Counterfactual Engine"
+        />
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+          {/* Rainfall Surge Slider */}
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs">
+              <span className="font-semibold uppercase tracking-wider text-text-muted">Simulated Rainfall Surge</span>
+              <span className="font-mono text-accent-cyan font-bold">+{additionalRain} mm</span>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-text-muted uppercase mb-1">Zone</label>
-                <select value={form.zone} onChange={e => setForm(p => ({ ...p, zone: e.target.value }))}
-                  className="w-full bg-surface-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus">
-                  {['Zone A', 'Zone B', 'Zone C', 'Zone D', 'Zone E'].map(z => <option key={z}>{z}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-text-muted uppercase mb-1">Severity</label>
-                <input type="number" value={form.severity} min={1} max={10} onChange={e => setForm(p => ({ ...p, severity: e.target.value }))}
-                  className="w-full bg-surface-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus" />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-text-muted uppercase mb-1">Response Time (hrs)</label>
-                <input type="number" value={form.response_time_hours} step={0.5} min={0.5} onChange={e => setForm(p => ({ ...p, response_time_hours: e.target.value }))}
-                  className="w-full bg-surface-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-text-muted uppercase mb-1">Resource Allocation (%)</label>
-                <input type="number" value={form.resource_allocation} min={10} max={100} onChange={e => setForm(p => ({ ...p, resource_allocation: e.target.value }))}
-                  className="w-full bg-surface-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus" />
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-text-muted uppercase mb-1">Weather Condition</label>
-              <select value={form.weather_condition} onChange={e => setForm(p => ({ ...p, weather_condition: e.target.value }))}
-                className="w-full bg-surface-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus">
-                {['clear', 'rain', 'heavy_rain', 'storm', 'fog'].map(w => <option key={w}>{w}</option>)}
-              </select>
-            </div>
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" checked={form.preventive_measures_active}
-                onChange={e => setForm(p => ({ ...p, preventive_measures_active: e.target.checked }))}
-                className="w-4 h-4 rounded border-border-standard bg-surface-elevated accent-accent-cyan" />
-              <span className="text-sm text-text-secondary">Preventive measures active</span>
-            </label>
-            <button onClick={run} disabled={loading}
-              className="w-full py-2.5 bg-accent-cyan text-bg-main font-semibold rounded-lg hover:bg-accent-deep-cyan transition-colors disabled:opacity-50">
-              {loading ? 'Simulating...' : 'Run What-If Simulation →'}
-            </button>
+            <input
+              type="range"
+              min={0}
+              max={150}
+              step={5}
+              value={additionalRain}
+              onChange={(e) => setAdditionalRain(parseFloat(e.target.value))}
+              className="w-full accent-accent-cyan cursor-pointer"
+            />
           </div>
+
+          {/* Target Outage Zone */}
+          <div className="space-y-1.5">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-text-muted">
+              Target Infrastructure Zone
+            </label>
+            <select
+              value={targetZone}
+              onChange={(e) => setTargetZone(e.target.value)}
+              className="w-full bg-surface-elevated border border-border-standard rounded-xl px-3.5 py-2 text-sm text-text-primary input-focus cursor-pointer font-medium"
+            >
+              {ZONES.map((z) => (
+                <option key={z} value={z}>
+                  {z}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <Button
+            variant="cyan"
+            loading={loading}
+            icon={<Sliders size={16} />}
+            onClick={runSimulation}
+          >
+            Execute Stress Test
+          </Button>
+        </div>
+      </Card>
+
+      {/* ─── Baseline vs. Projected Shock Metrics ───────────────────────────── */}
+      {result && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <KPICard
+            title="Baseline City Incidents"
+            value={result.baseline_incident_count ?? 125}
+            subtitle="Pre-shock steady state"
+            color="blue"
+          />
+          <KPICard
+            title="Projected Inundation Zones"
+            value={`+${result.rainfall_surge_simulation?.projected_additional_flood_zones ?? 0}`}
+            subtitle={`At +${additionalRain}mm precipitation`}
+            color="critical"
+          />
+          <KPICard
+            title="Cascade Multiplier"
+            value={`${result.rainfall_surge_simulation?.simulated_cascading_risk_multiplier ?? 1.0}x`}
+            subtitle="Risk amplification index"
+            color="high"
+          />
+          <KPICard
+            title="Gridlock Forecast"
+            value={`${result.power_grid_outage_simulation?.projected_secondary_traffic_gridlocks ?? 0} Nodes`}
+            subtitle={`In ${targetZone}`}
+            color="purple"
+          />
+        </div>
+      )}
+
+      {/* ─── Two-Column Comparative Deck ────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Rainfall Surge Scenario Card */}
+        <Card className="space-y-4">
+          <div className="flex items-center gap-3 pb-2 border-b border-border-subtle">
+            <div className="p-2.5 rounded-xl bg-accent-cyan/15 text-accent-cyan border border-accent-cyan/30">
+              <CloudRain size={20} />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-text-primary">Hydrological Inundation Model</h3>
+              <p className="text-xs text-text-muted">Impact of +{additionalRain}mm sudden storm surge</p>
+            </div>
+          </div>
+
+          {loading ? (
+            <LoadingState message="Modeling hydrological runoff and drainage capacity..." />
+          ) : error ? (
+            <ErrorState message={error} onRetry={runSimulation} />
+          ) : result?.rainfall_surge_simulation ? (
+            <div className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3.5 rounded-xl bg-surface-elevated border border-border-subtle">
+                  <span className="text-[10px] font-mono text-text-muted uppercase">Baseline Flooding Events</span>
+                  <p className="text-2xl font-black font-mono text-text-primary mt-1">
+                    {result.rainfall_surge_simulation.baseline_flooding_incidents}
+                  </p>
+                  <span className="text-[10px] text-text-secondary">Current historical reports</span>
+                </div>
+                <div className="p-3.5 rounded-xl bg-surface-elevated border border-severity-critical/30">
+                  <span className="text-[10px] font-mono text-severity-critical uppercase">Projected Inundation</span>
+                  <p className="text-2xl font-black font-mono text-severity-critical mt-1">
+                    +{result.rainfall_surge_simulation.projected_additional_flood_zones} Zones
+                  </p>
+                  <span className="text-[10px] text-text-secondary">Overloaded drain capacity</span>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-surface-elevated border border-border-standard flex items-center justify-between">
+                <div>
+                  <span className="text-text-muted block text-[10px] uppercase font-mono">Systemic Risk Factor</span>
+                  <span className="text-sm font-bold text-text-primary">
+                    Cascading Vulnerability Escalation
+                  </span>
+                </div>
+                <Badge variant="critical" dot>
+                  {result.rainfall_surge_simulation.simulated_cascading_risk_multiplier}x Risk Factor
+                </Badge>
+              </div>
+            </div>
+          ) : null}
         </Card>
 
-        {/* Results */}
-        <div className="space-y-4">
-          {loading && <LoadingState message="Running scenario simulation engine..." />}
-          {error && <ErrorState message={error} onRetry={run} />}
-          {result && !loading && (
-            <>
+        {/* Power Grid Shock Scenario Card */}
+        <Card className="space-y-4">
+          <div className="flex items-center gap-3 pb-2 border-b border-border-subtle">
+            <div className="p-2.5 rounded-xl bg-accent-violet/15 text-accent-violet border border-accent-violet/30">
+              <Zap size={20} />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-text-primary">Grid Outage Stress Model</h3>
+              <p className="text-xs text-text-muted">Substation failure impact in {targetZone}</p>
+            </div>
+          </div>
+
+          {loading ? (
+            <LoadingState message="Modeling electrical dependency propagation..." />
+          ) : error ? (
+            <ErrorState message={error} onRetry={runSimulation} />
+          ) : result?.power_grid_outage_simulation ? (
+            <div className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: 'Outcome Score', val: result.outcome_score ?? result.simulation_score },
-                  { label: 'Resolution Time', val: result.resolution_time_hrs !== undefined ? `${result.resolution_time_hrs}h` : (result.estimated_resolution_hours !== undefined ? `${result.estimated_resolution_hours}h` : '—') },
-                  { label: 'Resource Efficiency', val: result.resource_efficiency !== undefined ? `${(result.resource_efficiency * 100).toFixed(0)}%` : '—' },
-                  { label: 'Cost Estimate', val: result.cost_estimate !== undefined ? `₹${Number(result.cost_estimate).toLocaleString()}` : '—' },
-                ].map(({ label, val }) => (
-                  <Card key={label} className="text-center p-4">
-                    <div className="text-lg font-bold text-accent-cyan">{val ?? '—'}</div>
-                    <div className="text-xs text-text-muted mt-1">{label}</div>
-                  </Card>
-                ))}
+                <div className="p-3.5 rounded-xl bg-surface-elevated border border-border-subtle">
+                  <span className="text-[10px] font-mono text-text-muted uppercase">Current Zone Incidents</span>
+                  <p className="text-2xl font-black font-mono text-text-primary mt-1">
+                    {result.power_grid_outage_simulation.current_zone_incidents}
+                  </p>
+                  <span className="text-[10px] text-text-secondary">In {targetZone}</span>
+                </div>
+                <div className="p-3.5 rounded-xl bg-surface-elevated border border-accent-violet/30">
+                  <span className="text-[10px] font-mono text-accent-violet uppercase">Signal Gridlocks</span>
+                  <p className="text-2xl font-black font-mono text-accent-violet mt-1">
+                    {result.power_grid_outage_simulation.projected_secondary_traffic_gridlocks} Junctions
+                  </p>
+                  <span className="text-[10px] text-text-secondary">Dark signal cascade</span>
+                </div>
               </div>
 
-              {result.scenario_comparison && (
-                <Card>
-                  <h3 className="text-sm font-semibold text-text-primary mb-4">Scenario Comparison</h3>
-                  <div className="space-y-3">
-                    {Object.entries(result.scenario_comparison as Record<string, any>).map(([key, val]) => (
-                      <div key={key} className="flex justify-between items-center py-2 border-b border-border-subtle last:border-0">
-                        <span className="text-sm text-text-secondary capitalize">{key.replace(/_/g, ' ')}</span>
-                        <span className="text-sm font-mono text-accent-cyan">{typeof val === 'number' ? val.toFixed(2) : String(val)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-              )}
-
-              {result.insights && (
-                <Card>
-                  <h3 className="text-sm font-semibold text-text-primary mb-3">Simulation Insights</h3>
-                  <div className="space-y-2">
-                    {(result.insights as string[]).map((ins, i) => (
-                      <div key={i} className="flex gap-2 text-sm text-text-secondary">
-                        <span className="text-accent-cyan flex-shrink-0">›</span>{ins}
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-              )}
-            </>
-          )}
-          {!result && !loading && !error && (
-            <Card>
-              <div className="text-center py-12 text-text-muted">
-                <div className="text-4xl mb-3">⟳</div>
-                <p className="text-sm">Configure a scenario and run the what-if simulation</p>
+              <div className="p-3.5 rounded-xl bg-surface-elevated border border-border-standard flex items-center justify-between">
+                <div>
+                  <span className="text-text-muted block text-[10px] uppercase font-mono">Emergency Generator Demand</span>
+                  <span className="text-sm font-bold text-text-primary">
+                    Auxiliary Power Requirements
+                  </span>
+                </div>
+                <Badge variant="purple" dot>
+                  {result.power_grid_outage_simulation.estimated_emergency_generator_demand_units} Units Needed
+                </Badge>
               </div>
-            </Card>
-          )}
-        </div>
+            </div>
+          ) : null}
+        </Card>
       </div>
     </div>
   )

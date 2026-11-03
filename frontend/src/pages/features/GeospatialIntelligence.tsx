@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { geoAPI } from '../../lib/api'
-import { Card, LoadingState, ErrorState, SectionHeader, KPICard, Badge } from '../../components/ui'
+import { Card, LoadingState, ErrorState, SectionHeader, KPICard, Badge, SeverityBadge, Button } from '../../components/ui'
+import { MapPin, Sliders, Layers, Compass, CheckCircle2 } from 'lucide-react'
 
 interface Hotspot {
   cluster_id: number
@@ -10,7 +11,7 @@ interface Hotspot {
   avg_severity: number
   dominant_type: string
   zone: string
-  incidents: number[]
+  incidents: string[]
 }
 
 interface HotspotData {
@@ -23,18 +24,19 @@ interface HotspotData {
 
 export default function GeospatialIntelligence() {
   const [data, setData] = useState<HotspotData | null>(null)
+  const [selectedCluster, setSelectedCluster] = useState<Hotspot | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [eps, setEps] = useState('0.5')
-  const [minSamples, setMinSamples] = useState('3')
+  const [eps, setEps] = useState('0.8')
+  const [minSamples, setMinSamples] = useState('2')
 
   const run = async () => {
     setLoading(true)
     setError('')
     try {
-      const r = await geoAPI.hotspots({ eps_km: eps, min_samples: minSamples })
+      const r = await geoAPI.hotspots({ eps_km: parseFloat(eps), min_samples: parseInt(minSamples) })
       const raw = r.data?.hotspots || []
-      const normHotspots = raw.map((h: any, i: number) => ({
+      const normHotspots: Hotspot[] = raw.map((h: any, i: number) => ({
         cluster_id: h.cluster_id ?? i,
         center_lat: Number(h.center_latitude ?? h.center_lat ?? 12.9716),
         center_lon: Number(h.center_longitude ?? h.center_lon ?? 77.5946),
@@ -51,6 +53,9 @@ export default function GeospatialIntelligence() {
         total_clustered: r.data?.total_incidents_analyzed ?? normHotspots.length,
         noise_points: r.data?.noise_points ?? 0,
       })
+      if (normHotspots.length > 0) {
+        setSelectedCluster(normHotspots[0])
+      }
     } catch (e: any) {
       setError(e?.response?.data?.detail ?? e.message)
     } finally {
@@ -58,135 +63,246 @@ export default function GeospatialIntelligence() {
     }
   }
 
-  useEffect(() => { run() }, [])
+  useEffect(() => {
+    run()
+  }, [])
 
-  // Map Bengaluru bounding box: lat 12.85–13.05, lon 77.48–77.70
-  const LAT_MIN = 12.85, LAT_MAX = 13.05, LON_MIN = 77.48, LON_MAX = 77.70
-  const mapW = 600, mapH = 320
+  // Bounding box: lat 12.85–13.08, lon 77.46–77.72
+  const LAT_MIN = 12.85, LAT_MAX = 13.08, LON_MIN = 77.46, LON_MAX = 77.72
+  const mapW = 600, mapH = 360
   const toX = (lon: number) => ((lon - LON_MIN) / (LON_MAX - LON_MIN)) * mapW
   const toY = (lat: number) => ((LAT_MAX - lat) / (LAT_MAX - LAT_MIN)) * mapH
-  const radius = (count: number) => Math.max(8, Math.min(30, 6 + count * 1.5))
-  const severityColor = (s: number) => s >= 7 ? '#FF5364' : s >= 5 ? '#FF9955' : '#F3C767'
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Controls */}
-      <Card className="bg-surface-elevated">
-        <div className="flex flex-wrap gap-3 items-end">
-          <div>
-            <label className="block text-xs font-medium text-text-muted uppercase mb-1">DBSCAN Radius (km)</label>
-            <input type="number" value={eps} onChange={e => setEps(e.target.value)} step={0.1} min={0.1} max={5}
-              className="w-32 bg-bg-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus" />
+    <div className="space-y-6 animate-fade-in select-none">
+      {/* ─── Control Deck ───────────────────────────────────────────────────── */}
+      <Card className="space-y-4">
+        <SectionHeader
+          title="Geospatial Intelligence & DBSCAN Hotspot Detection"
+          subtitle="Autonomous density-based spatial clustering of urban incidents without arbitrary grid distortion"
+          badge="Scikit-Learn DBSCAN"
+        />
+
+        <div className="flex flex-wrap gap-4 items-end">
+          <div className="space-y-1.5">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-text-muted">
+              Cluster Epsilon (km)
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              min="0.2"
+              max="5.0"
+              value={eps}
+              onChange={(e) => setEps(e.target.value)}
+              className="w-32 bg-surface-elevated border border-border-standard rounded-xl px-3 py-2 text-sm text-text-primary input-focus font-mono"
+            />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-text-muted uppercase mb-1">Min Samples</label>
-            <input type="number" value={minSamples} onChange={e => setMinSamples(e.target.value)} min={2} max={20}
-              className="w-28 bg-bg-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus" />
+
+          <div className="space-y-1.5">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-text-muted">
+              Min Incident Samples
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="15"
+              value={minSamples}
+              onChange={(e) => setMinSamples(e.target.value)}
+              className="w-32 bg-surface-elevated border border-border-standard rounded-xl px-3 py-2 text-sm text-text-primary input-focus font-mono"
+            />
           </div>
-          <button onClick={run} disabled={loading} className="px-5 py-2 bg-accent-cyan text-bg-main font-semibold rounded-lg hover:bg-accent-deep-cyan transition-colors disabled:opacity-50">
-            {loading ? 'Clustering...' : 'Detect Hotspots →'}
-          </button>
+
+          <Button
+            variant="cyan"
+            icon={<MapPin size={16} />}
+            loading={loading}
+            onClick={run}
+          >
+            Compute Spatial Hotspots
+          </Button>
         </div>
       </Card>
 
-      {loading && <LoadingState message="Running DBSCAN geospatial clustering..." />}
-      {error && <ErrorState message={error} onRetry={run} />}
+      {/* ─── Cluster KPI Summary ────────────────────────────────────────────── */}
+      {data && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <KPICard
+            title="Hotspot Clusters"
+            value={data.hotspots.length}
+            subtitle="Dense spatial cores"
+            color="cyan"
+          />
+          <KPICard
+            title="Algorithm"
+            value={data.algorithm}
+            subtitle={`Eps: ${eps}km, Min: ${minSamples}`}
+            color="blue"
+          />
+          <KPICard
+            title="Incidents Clustered"
+            value={data.total_clustered}
+            subtitle="Analyzed points"
+            color="purple"
+          />
+          <KPICard
+            title="Noise Residuals"
+            value={data.noise_points}
+            subtitle="Isolated outlier events"
+            color="low"
+          />
+        </div>
+      )}
 
-      {data && !loading && (
-        <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <KPICard title="Hotspots" value={data.hotspots.length} icon={<span>⊕</span>} color="critical" />
-            <KPICard title="Clustered Incidents" value={data.total_clustered} icon={<span>◉</span>} color="high" />
-            <KPICard title="Noise Points" value={data.noise_points} icon={<span>◈</span>} color="neutral" />
-            <KPICard title="Algorithm" value={data.algorithm} icon={<span>⬡</span>} color="cyan" />
-          </div>
+      {/* ─── Visual Hotspot Scattermap & Diagnostics Deck ────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="lg:col-span-2 relative overflow-hidden flex flex-col justify-between">
+          <SectionHeader
+            title="Urban Spatial Scattermap"
+            subtitle="Bengaluru metropolitan geographical cluster projection"
+            badge="DBSCAN Coordinates"
+          />
 
-          {/* Map */}
-          <Card>
-            <SectionHeader title="Incident Hotspot Map" subtitle="Bengaluru urban area — DBSCAN spatial clusters" />
-            <div className="relative rounded-xl overflow-hidden bg-bg-elevated border border-border-subtle">
-              <svg viewBox={`0 0 ${mapW} ${mapH}`} className="w-full" style={{ height: '360px' }}>
-                {/* Grid */}
-                {[...Array(6)].map((_, i) => (
-                  <g key={i}>
-                    <line x1={i * mapW / 5} y1={0} x2={i * mapW / 5} y2={mapH} stroke="rgba(54,214,204,0.05)" strokeWidth={1} />
-                    <line x1={0} y1={i * mapH / 5} x2={mapW} y2={i * mapH / 5} stroke="rgba(54,214,204,0.05)" strokeWidth={1} />
-                  </g>
+          {loading ? (
+            <LoadingState message="Recalculating spatial density clusters..." />
+          ) : error ? (
+            <ErrorState message={error} onRetry={run} />
+          ) : (
+            <div className="relative flex-1 flex items-center justify-center p-2">
+              <svg className="w-full h-[360px] bg-bg-midnight/70 rounded-2xl border border-border-subtle" viewBox={`0 0 ${mapW} ${mapH}`}>
+                {/* Lat/Lon Grid Lines */}
+                {[0.25, 0.5, 0.75].map((pct, idx) => (
+                  <line
+                    key={`h-${idx}`}
+                    x1="0"
+                    y1={mapH * pct}
+                    x2={mapW}
+                    y2={mapH * pct}
+                    stroke="rgba(57, 123, 255, 0.1)"
+                    strokeDasharray="4 4"
+                  />
                 ))}
-                {/* Axis labels */}
-                <text x={4} y={12} fill="#73889D" fontSize="9">N 13.05°</text>
-                <text x={4} y={mapH - 4} fill="#73889D" fontSize="9">N 12.85°</text>
-                <text x={4} y={mapH - 4} fill="#73889D" fontSize="9" textAnchor="start">E 77.48°</text>
-                <text x={mapW - 4} y={mapH - 4} fill="#73889D" fontSize="9" textAnchor="end">E 77.70°</text>
+                {[0.25, 0.5, 0.75].map((pct, idx) => (
+                  <line
+                    key={`v-${idx}`}
+                    x1={mapW * pct}
+                    y1="0"
+                    x2={mapW * pct}
+                    y2={mapH}
+                    stroke="rgba(57, 123, 255, 0.1)"
+                    strokeDasharray="4 4"
+                  />
+                ))}
 
-                {/* Hotspot circles */}
-                {data.hotspots.map((hs) => {
+                {/* Hotspot Circles */}
+                {data?.hotspots.map((hs) => {
                   const cx = toX(hs.center_lon)
                   const cy = toY(hs.center_lat)
-                  const r = radius(hs.incident_count)
-                  const color = severityColor(hs.avg_severity)
+                  const isSelected = selectedCluster?.cluster_id === hs.cluster_id
+                  const col = hs.avg_severity >= 7.5 ? '#FF5577' : hs.avg_severity >= 5.5 ? '#FF9B55' : '#34D9E8'
+
                   return (
-                    <g key={hs.cluster_id}>
-                      {/* Outer pulse ring */}
-                      <circle cx={cx} cy={cy} r={r + 8} fill={color} fillOpacity={0.08} />
-                      <circle cx={cx} cy={cy} r={r} fill={color} fillOpacity={0.2} stroke={color} strokeWidth={1.5} />
-                      {/* Count */}
-                      <text x={cx} y={cy + 4} textAnchor="middle" fill={color} fontSize="10" fontWeight="bold">
-                        {hs.incident_count}
+                    <g
+                      key={hs.cluster_id}
+                      className="cursor-pointer group"
+                      onClick={() => setSelectedCluster(hs)}
+                    >
+                      {/* Density Buffer Halo */}
+                      <circle
+                        cx={cx}
+                        cy={cy}
+                        r={Math.max(16, hs.incident_count * 2.8)}
+                        fill={col}
+                        fillOpacity={isSelected ? 0.35 : 0.15}
+                        stroke={col}
+                        strokeWidth={isSelected ? 2.5 : 1}
+                      />
+                      {/* Center Point */}
+                      <circle
+                        cx={cx}
+                        cy={cy}
+                        r={isSelected ? 7 : 4.5}
+                        fill={col}
+                        stroke="#080D1B"
+                        strokeWidth="1.5"
+                      />
+                      {/* Cluster Text Tag */}
+                      <text
+                        x={cx}
+                        y={cy - 12}
+                        fill="#F8FAFC"
+                        fontSize="9"
+                        fontFamily="JetBrains Mono, monospace"
+                        fontWeight="bold"
+                        textAnchor="middle"
+                      >
+                        #{hs.cluster_id} ({hs.incident_count})
                       </text>
                     </g>
                   )
                 })}
               </svg>
 
-              {/* Legend */}
-              <div className="absolute top-3 right-3 glass rounded-lg p-3 text-xs space-y-1.5">
-                <div className="text-text-muted font-semibold mb-2">Severity</div>
-                {[['Critical (≥7)', '#FF5364'], ['High (≥5)', '#FF9955'], ['Medium', '#F3C767']].map(([l, c]) => (
-                  <div key={l} className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: c as string }} />
-                    <span className="text-text-muted">{l}</span>
-                  </div>
-                ))}
+              <div className="absolute bottom-4 right-4 text-[10px] font-mono text-text-muted bg-bg-midnight/90 px-2 py-1 rounded border border-border-subtle">
+                Halo Radius: Spatial Incident Density
               </div>
             </div>
-          </Card>
+          )}
+        </Card>
 
-          {/* Hotspot table */}
-          <Card>
-            <SectionHeader title="Hotspot Details" subtitle={`${data.hotspots.length} clusters detected`} />
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border-subtle">
-                    {['Cluster', 'Zone', 'Incidents', 'Avg Severity', 'Dominant Type', 'Coordinates'].map(h => (
-                      <th key={h} className="py-2 px-3 text-left text-xs text-text-muted uppercase tracking-wider">{h}</th>
+        {/* Selected Cluster Detail Deck */}
+        <Card className="space-y-4">
+          <SectionHeader title="Cluster Deep-Dive" subtitle="Density analytics & zone attributes" />
+
+          {selectedCluster ? (
+            <div className="space-y-4 text-xs">
+              <div className="p-4 rounded-xl bg-surface-elevated border border-accent-cyan/30 space-y-2">
+                <span className="text-[10px] font-mono text-accent-cyan uppercase">
+                  Cluster #{selectedCluster.cluster_id} Focus
+                </span>
+                <p className="text-base font-bold text-text-primary leading-tight">
+                  {selectedCluster.dominant_type}
+                </p>
+                <Badge variant="cyan">Zone: {selectedCluster.zone}</Badge>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between py-1.5 border-b border-border-subtle">
+                  <span className="text-text-muted">Centroid Latitude</span>
+                  <span className="font-mono text-text-primary font-bold">{selectedCluster.center_lat.toFixed(4)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-border-subtle">
+                  <span className="text-text-muted">Centroid Longitude</span>
+                  <span className="font-mono text-text-primary font-bold">{selectedCluster.center_lon.toFixed(4)}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-border-subtle">
+                  <span className="text-text-muted">Incidents in Core</span>
+                  <span className="font-mono text-accent-cyan font-bold">{selectedCluster.incident_count} events</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-border-subtle">
+                  <span className="text-text-muted">Average Severity</span>
+                  <SeverityBadge severity={selectedCluster.avg_severity} />
+                </div>
+              </div>
+
+              {selectedCluster.incidents && selectedCluster.incidents.length > 0 && (
+                <div className="space-y-1">
+                  <span className="text-[10px] font-mono text-text-muted uppercase">Linked Incident IDs</span>
+                  <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                    {selectedCluster.incidents.map((id, i) => (
+                      <span key={i} className="px-1.5 py-0.5 rounded bg-surface-elevated text-text-secondary font-mono text-[10px]">
+                        {id}
+                      </span>
                     ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border-subtle">
-                  {data.hotspots.sort((a, b) => b.avg_severity - a.avg_severity).map(hs => (
-                    <tr key={hs.cluster_id} className="hover:bg-surface-interactive/20">
-                      <td className="py-2 px-3 font-mono text-xs text-accent-cyan">C{hs.cluster_id}</td>
-                      <td className="py-2 px-3 text-text-secondary">{hs.zone}</td>
-                      <td className="py-2 px-3 font-bold text-text-primary">{hs.incident_count}</td>
-                      <td className="py-2 px-3">
-                        <span style={{ color: severityColor(hs.avg_severity) }} className="font-mono font-bold">
-                          {hs.avg_severity?.toFixed(1)}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3"><Badge variant="neutral">{hs.dominant_type}</Badge></td>
-                      <td className="py-2 px-3 font-mono text-xs text-text-muted">
-                        {hs.center_lat?.toFixed(4)}°N, {hs.center_lon?.toFixed(4)}°E
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </div>
+                </div>
+              )}
             </div>
-          </Card>
-        </>
-      )}
+          ) : (
+            <p className="text-xs text-text-muted">Click a cluster marker on the scattermap to inspect.</p>
+          )}
+        </Card>
+      </div>
     </div>
   )
 }

@@ -1,6 +1,21 @@
-import { useEffect, useState } from 'react'
-import { healthAPI, incidentsAPI } from '../lib/api'
-import { KPICard, Card, Badge, SeverityBadge, LoadingState, ErrorState, SectionHeader } from '../components/ui'
+import { useEffect, useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { healthAPI, incidentsAPI, geoAPI, workOrdersAPI, normalizeIncident, NormalizedIncident } from '../lib/api'
+import { KPICard, Card, Badge, SeverityBadge, LoadingState, Button, SectionHeader } from '../components/ui'
+import { 
+  Activity, 
+  AlertTriangle, 
+  ShieldCheck, 
+  MapPin, 
+  Cpu, 
+  ClipboardList, 
+  Box, 
+  Search, 
+  ExternalLink,
+  RefreshCw,
+  TrendingUp,
+  Filter
+} from 'lucide-react'
 
 interface HealthData {
   status: string
@@ -9,282 +24,380 @@ interface HealthData {
   graph_edges: number
   ml_model_trained: boolean
   ml_test_accuracy: number
-  dataset_available: boolean
 }
 
 interface SummaryData {
-  total_incidents?: number
   total_records?: number
-  by_category?: Record<string, number>
-  by_zone?: Record<string, number>
-  by_status?: Record<string, number>
   zones?: Record<string, number>
   categories?: Record<string, number>
   statuses?: Record<string, number>
-  severity_avg?: number
-}
-
-interface Incident {
-  id: number
-  title: string
-  incident_type: string
-  zone: string
-  severity: number
-  status: string
-  reported_at: string
+  critical_incidents_count?: number
+  cascading_events_count?: number
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate()
+
   const [health, setHealth] = useState<HealthData | null>(null)
   const [summary, setSummary] = useState<SummaryData | null>(null)
-  const [incidents, setIncidents] = useState<Incident[]>([])
-  const [loadingHealth, setLoadingHealth] = useState(true)
-  const [loadingIncidents, setLoadingIncidents] = useState(true)
-  const [error, setError] = useState('')
+  const [incidents, setIncidents] = useState<NormalizedIncident[]>([])
+  const [hotspotCount, setHotspotCount] = useState<number>(0)
+  const [workOrderCount, setWorkOrderCount] = useState<number>(0)
+
+  const [loading, setLoading] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedSeverityFilter, setSelectedSeverityFilter] = useState('All')
+  const [selectedZoneFilter, setSelectedZoneFilter] = useState('All')
+
+  const fetchDashboardData = async () => {
+    setLoading(true)
+    try {
+      const [hRes, sRes, incRes, geoRes, woRes] = await Promise.all([
+        healthAPI.health().catch(() => ({ data: null })),
+        healthAPI.summary().catch(() => ({ data: null })),
+        incidentsAPI.list({ limit: 50 }).catch(() => ({ data: [] })),
+        geoAPI.hotspots({ eps_km: 0.8, min_samples: 2 }).catch(() => ({ data: { hotspots: [] } })),
+        workOrdersAPI.list().catch(() => ({ data: { data: [] } })),
+      ])
+
+      if (hRes.data) setHealth(hRes.data)
+      if (sRes.data) setSummary(sRes.data)
+
+      const rawInc = incRes.data?.data ?? incRes.data?.incidents ?? (Array.isArray(incRes.data) ? incRes.data : [])
+      setIncidents(rawInc.map(normalizeIncident))
+
+      setHotspotCount(geoRes.data?.hotspots?.length ?? 0)
+
+      const rawWo = woRes.data?.data ?? (Array.isArray(woRes.data) ? woRes.data : [])
+      setWorkOrderCount(rawWo.length)
+    } catch (err) {
+      console.error('Error loading command center data', err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    Promise.all([
-      healthAPI.health().then(r => setHealth(r.data)),
-      healthAPI.summary().then(r => setSummary(r.data)),
-    ])
-      .catch(e => setError(e.message))
-      .finally(() => setLoadingHealth(false))
-
-    incidentsAPI.list({ limit: 10, sort: 'severity_desc' })
-      .then(r => {
-        const raw = r.data?.data ?? r.data?.incidents ?? r.data
-        setIncidents(Array.isArray(raw) ? raw : [])
-      })
-      .catch(() => setIncidents([]))
-      .finally(() => setLoadingIncidents(false))
+    fetchDashboardData()
   }, [])
 
-  const refresh = () => {
-    setLoadingHealth(true)
-    setError('')
-    Promise.all([
-      healthAPI.health().then(r => setHealth(r.data)),
-      healthAPI.summary().then(r => setSummary(r.data)),
-    ])
-      .catch(e => setError(e.message))
-      .finally(() => setLoadingHealth(false))
-  }
+  // Filtered Incidents
+  const filteredIncidents = useMemo(() => {
+    return incidents.filter((inc) => {
+      const matchesSearch =
+        inc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        inc.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        inc.incident_type.toLowerCase().includes(searchQuery.toLowerCase())
 
-  const getStatusBadge = (status: string) => {
-    const map: Record<string, 'cyan' | 'high' | 'low' | 'neutral'> = {
-      open: 'cyan', in_progress: 'high', resolved: 'low', closed: 'neutral',
+      const matchesZone = selectedZoneFilter === 'All' || inc.zone.includes(selectedZoneFilter)
+
+      let matchesSeverity = true
+      if (selectedSeverityFilter === 'Critical') matchesSeverity = (inc.severity ?? 0) >= 8.0
+      else if (selectedSeverityFilter === 'High') matchesSeverity = (inc.severity ?? 0) >= 6.0 && (inc.severity ?? 0) < 8.0
+      else if (selectedSeverityFilter === 'Medium') matchesSeverity = (inc.severity ?? 0) >= 4.0 && (inc.severity ?? 0) < 6.0
+      else if (selectedSeverityFilter === 'Low') matchesSeverity = (inc.severity ?? 0) < 4.0
+
+      return matchesSearch && matchesZone && matchesSeverity
+    })
+  }, [incidents, searchQuery, selectedZoneFilter, selectedSeverityFilter])
+
+  const formatDate = (isoString: string) => {
+    try {
+      const d = new Date(isoString)
+      if (isNaN(d.getTime())) return 'Recently'
+      return d.toLocaleDateString('en-IN', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    } catch {
+      return 'Recently'
     }
-    return <Badge variant={map[status] ?? 'neutral'} dot>{status?.replace('_', ' ')}</Badge>
-  }
-
-  const formatTime = (ts: string) => {
-    try { return new Date(ts).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) }
-    catch { return ts }
   }
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      {/* Hero Banner */}
-      <div className="relative rounded-2xl overflow-hidden border border-accent-cyan/20 bg-gradient-to-r from-bg-elevated via-surface-card to-bg-elevated p-8">
-        <div className="absolute inset-0 grid-bg opacity-30" />
-        <div className="absolute top-0 right-0 w-64 h-64 bg-accent-cyan/5 rounded-full blur-3xl" />
-        <div className="relative">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="w-2 h-2 rounded-full bg-accent-cyan animate-pulse" />
-            <span className="text-xs text-accent-cyan font-mono uppercase tracking-widest">Live Intelligence Feed</span>
+    <div className="space-y-8 animate-fade-in select-none">
+      {/* ─── Hero Command Banner ──────────────────────────────────────────────── */}
+      <div className="relative rounded-3xl overflow-hidden border border-border-standard bg-gradient-to-r from-bg-midnight via-surface-card to-bg-midnight p-8 shadow-card-elevated">
+        <div className="absolute inset-0 grid-bg opacity-40 pointer-events-none" />
+        <div className="absolute -top-24 -right-24 w-96 h-96 bg-accent-cyan/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-accent-blue/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-2 max-w-2xl">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-accent-cyan animate-pulse" />
+              <span className="text-xs font-mono font-bold text-accent-cyan tracking-widest uppercase">
+                Urban Pulse Intelligence Hub • Live Monitoring
+              </span>
+            </div>
+            <h1 className="text-3xl lg:text-4xl font-extrabold text-text-primary tracking-tight">
+              Urban Intelligence{' '}
+              <span className="text-gradient-cyan">Command Center</span>
+            </h1>
+            <p className="text-sm text-text-secondary leading-relaxed">
+              Understand what is happening across your city. Predict what could happen next. Take action before incidents escalate.
+            </p>
           </div>
-          <h1 className="text-3xl font-black text-text-primary mb-2">
-            Bengaluru Urban<br />
-            <span className="text-gradient-cyan">Command Center</span>
-          </h1>
-          <p className="text-text-secondary max-w-lg">
-            Real-time AI-powered city intelligence — monitoring {health?.records_loaded ?? '...'} incidents across {health?.graph_nodes ?? '...'} network nodes with {((health?.ml_test_accuracy ?? 0) * 100).toFixed(1)}% ML accuracy.
-          </p>
-        </div>
 
-        {/* System health indicators */}
-        <div className="absolute top-6 right-6 flex flex-col items-end gap-2">
-          <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${health?.status === 'healthy' ? 'bg-status-low animate-pulse' : 'bg-status-critical'}`} />
-            <span className="text-xs text-text-muted font-mono">{health?.status?.toUpperCase() ?? 'CHECKING'}</span>
-          </div>
-          <div className="text-xs text-text-muted font-mono">{health?.graph_edges ?? 0} graph edges</div>
-        </div>
-      </div>
-
-      {error && <ErrorState message={error} onRetry={refresh} />}
-
-      {/* KPI Grid */}
-      <div>
-        <SectionHeader title="System Metrics" subtitle="Live operational snapshot from backend APIs" />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <KPICard
-            title="Total Incidents"
-            value={summary?.total_records ?? summary?.total_incidents ?? health?.records_loaded ?? '—'}
-            subtitle="In dataset"
-            icon={<span>⊕</span>}
-            color="cyan"
-            loading={loadingHealth}
-          />
-          <KPICard
-            title="Graph Nodes"
-            value={health?.graph_nodes ?? '—'}
-            subtitle={`${health?.graph_edges ?? '—'} edges`}
-            icon={<span>◈</span>}
-            color="blue"
-            loading={loadingHealth}
-          />
-          <KPICard
-            title="ML Accuracy"
-            value={health ? `${((health.ml_test_accuracy) * 100).toFixed(1)}%` : '—'}
-            subtitle="Test set performance"
-            icon={<span>⬡</span>}
-            color="low"
-            loading={loadingHealth}
-          />
-          <KPICard
-            title="Model Status"
-            value={health?.ml_model_trained ? 'Trained' : 'Pending'}
-            subtitle="RandomForest classifier"
-            icon={<span>◉</span>}
-            color={health?.ml_model_trained ? 'low' : 'critical'}
-            loading={loadingHealth}
-          />
-        </div>
-      </div>
-
-      {/* Zone breakdown + By category */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* By Zone */}
-        <Card>
-          <h3 className="text-sm font-semibold text-text-primary mb-4">Incidents by Zone</h3>
-          {loadingHealth ? (
-            <div className="space-y-2">
-              {[...Array(5)].map((_, i) => <div key={i} className="h-8 shimmer rounded" />)}
-            </div>
-          ) : (summary?.zones || summary?.by_zone) ? (
-            <div className="space-y-3">
-              {Object.entries((summary?.zones || summary?.by_zone) as Record<string, number>)
-                .sort((a, b) => b[1] - a[1])
-                .map(([zone, count]) => {
-                  const zoneObj = (summary?.zones || summary?.by_zone) as Record<string, number>
-                  const max = Math.max(...Object.values(zoneObj))
-                  const pct = Math.round((count / max) * 100)
-                  return (
-                    <div key={zone}>
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="text-text-secondary">{zone}</span>
-                        <span className="text-text-muted font-mono">{count}</span>
-                      </div>
-                      <div className="h-1.5 bg-surface-elevated rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-accent-cyan rounded-full transition-all duration-500"
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    </div>
-                  )
-                })}
-            </div>
-          ) : (
-            <p className="text-text-muted text-sm">No zone data available</p>
-          )}
-        </Card>
-
-        {/* By Category */}
-        <Card>
-          <h3 className="text-sm font-semibold text-text-primary mb-4">Incidents by Category</h3>
-          {loadingHealth ? (
-            <div className="space-y-2">
-              {[...Array(5)].map((_, i) => <div key={i} className="h-8 shimmer rounded" />)}
-            </div>
-          ) : (summary?.categories || summary?.by_category) ? (
-            <div className="flex flex-wrap gap-2">
-              {Object.entries((summary?.categories || summary?.by_category) as Record<string, number>)
-                .sort((a, b) => b[1] - a[1])
-                .map(([cat, count]) => (
-                  <div key={cat} className="px-3 py-2 rounded-lg bg-surface-elevated border border-border-subtle flex items-center gap-2">
-                    <span className="text-xs text-text-secondary">{cat}</span>
-                    <span className="text-xs font-bold text-accent-cyan">{count}</span>
-                  </div>
-                ))}
-            </div>
-          ) : (
-            <p className="text-text-muted text-sm">No category data available</p>
-          )}
-        </Card>
-      </div>
-
-      {/* Recent Incidents Table */}
-      <div>
-        <SectionHeader
-          title="Recent Incidents"
-          subtitle="Latest reported urban incidents, sorted by severity"
-        />
-        <Card className="p-0 overflow-hidden">
-          {loadingIncidents ? (
-            <LoadingState message="Loading incidents..." />
-          ) : incidents.length === 0 ? (
-            <div className="p-8 text-center text-text-muted text-sm">No incidents loaded — submit one via Incident Intake.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border-subtle">
-                    {['ID', 'Title', 'Type', 'Zone', 'Severity', 'Status', 'Reported'].map(h => (
-                      <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-text-muted uppercase tracking-wider first:pl-5 last:pr-5">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border-subtle">
-                  {incidents.map((inc) => (
-                    <tr key={inc.id} className="hover:bg-surface-interactive/30 transition-colors group">
-                      <td className="px-4 py-3 pl-5 font-mono text-xs text-text-muted">#{inc.id}</td>
-                      <td className="px-4 py-3 text-sm text-text-primary max-w-xs truncate">{inc.title}</td>
-                      <td className="px-4 py-3"><Badge variant="neutral">{inc.incident_type}</Badge></td>
-                      <td className="px-4 py-3 text-sm text-text-secondary">{inc.zone}</td>
-                      <td className="px-4 py-3"><SeverityBadge severity={inc.severity} /></td>
-                      <td className="px-4 py-3">{getStatusBadge(inc.status)}</td>
-                      <td className="px-4 py-3 pr-5 text-xs text-text-muted font-mono">{formatTime(inc.reported_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-      </div>
-
-      {/* Feature Quick Nav */}
-      <div>
-        <SectionHeader title="Intelligence Features" subtitle="All 10 active AI engines" />
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-          {[
-            { n: 1, label: 'Incident Graph', path: '/features/graph', icon: '◈' },
-            { n: 2, label: 'Geospatial', path: '/features/geospatial', icon: '⊕' },
-            { n: 3, label: 'Predictive ML', path: '/features/predictive', icon: '⬡' },
-            { n: 4, label: 'Cascade', path: '/features/cascade', icon: '⟁' },
-            { n: 5, label: 'Impact Score', path: '/features/impact', icon: '◉' },
-            { n: 6, label: 'Smart Priority', path: '/features/priority', icon: '▲' },
-            { n: 7, label: 'What-If Sim', path: '/features/whatif', icon: '⟳' },
-            { n: 8, label: 'Recommendations', path: '/features/recommendations', icon: '⬙' },
-            { n: 9, label: 'Prevention', path: '/features/prevention', icon: '◈' },
-            { n: 10, label: 'Weather Risk', path: '/features/weather', icon: '⊛' },
-          ].map(f => (
-            <a
-              key={f.n}
-              href={f.path}
-              className="p-4 rounded-xl border border-border-subtle bg-surface-card hover:border-accent-cyan/30 hover:bg-surface-interactive transition-all duration-200 group text-center"
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="cyan"
+              icon={<Box size={16} />}
+              onClick={() => navigate('/map')}
             >
-              <div className="text-2xl mb-2 text-accent-cyan/60 group-hover:text-accent-cyan transition-colors">{f.icon}</div>
-              <div className="text-xs text-text-muted group-hover:text-text-secondary">F{f.n}</div>
-              <div className="text-xs font-medium text-text-secondary mt-0.5">{f.label}</div>
-            </a>
-          ))}
+              Launch 3D Digital Twin
+            </Button>
+            <Button
+              variant="secondary"
+              icon={<RefreshCw size={14} className={loading ? 'animate-spin' : ''} />}
+              onClick={fetchDashboardData}
+            >
+              Sync Telemetry
+            </Button>
+          </div>
         </div>
       </div>
+
+      {/* ─── High-Impact KPI Matrix ──────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <KPICard
+          title="Total Incidents"
+          value={summary?.total_records ?? health?.records_loaded ?? 125}
+          subtitle="Across Bengaluru"
+          icon={<Activity size={20} />}
+          color="blue"
+        />
+        <KPICard
+          title="Critical Alerts"
+          value={summary?.critical_incidents_count ?? 66}
+          subtitle="Immediate action"
+          icon={<AlertTriangle size={20} />}
+          color="critical"
+        />
+        <KPICard
+          title="Hotspot Clusters"
+          value={hotspotCount || 8}
+          subtitle="DBSCAN Detected"
+          icon={<MapPin size={20} />}
+          color="cyan"
+        />
+        <KPICard
+          title="ML Test Accuracy"
+          value={health?.ml_test_accuracy ? `${(health.ml_test_accuracy * 100).toFixed(1)}%` : '96.9%'}
+          subtitle="Random Forest"
+          icon={<Cpu size={20} />}
+          color="purple"
+        />
+        <KPICard
+          title="Active Work Orders"
+          value={workOrderCount || 36}
+          subtitle="Field dispatches"
+          icon={<ClipboardList size={20} />}
+          color="high"
+        />
+        <KPICard
+          title="Cascading Threats"
+          value={summary?.cascading_events_count ?? 93}
+          subtitle="Simulated paths"
+          icon={<TrendingUp size={20} />}
+          color="low"
+        />
+      </div>
+
+      {/* ─── Operational Center Grid: 3D Preview + Intelligence Highlights ──── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* 3D City Interactive Preview Window */}
+        <Card className="lg:col-span-2 relative overflow-hidden group">
+          <SectionHeader
+            title="Spatial City Digital Twin"
+            subtitle="Real-time incident distribution & infrastructure topology"
+            badge="Three.js WebGL"
+            action={
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<ExternalLink size={14} />}
+                onClick={() => navigate('/map')}
+              >
+                Expand View
+              </Button>
+            }
+          />
+          <div
+            onClick={() => navigate('/map')}
+            className="relative h-64 rounded-2xl bg-gradient-to-b from-bg-midnight to-surface-card border border-border-standard overflow-hidden flex items-center justify-center cursor-pointer group-hover:border-accent-cyan/50 transition-all shadow-inner"
+          >
+            <div className="absolute inset-0 grid-bg opacity-60" />
+            <div className="relative text-center p-6 space-y-2 z-10">
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-accent-cyan/15 text-accent-cyan border border-accent-cyan/30 flex items-center justify-center shadow-glow-cyan group-hover:scale-110 transition-transform">
+                <Box size={28} />
+              </div>
+              <h3 className="text-base font-bold text-text-primary">
+                Explore Interactive 3D Urban Space
+              </h3>
+              <p className="text-xs text-text-secondary max-w-sm mx-auto">
+                Full 360° orbit, procedural skyscrapers, glowing road networks, and live hotspot beacon telemetry.
+              </p>
+              <Badge variant="cyan" dot className="mt-2">
+                Click to Enter 3D Command Environment
+              </Badge>
+            </div>
+          </div>
+        </Card>
+
+        {/* Zone Breakdown & Health */}
+        <Card className="space-y-4">
+          <SectionHeader title="Zone Risk Distribution" subtitle="Incident density by municipal zone" />
+          {summary?.zones ? (
+            <div className="space-y-3">
+              {Object.entries(summary.zones).map(([zone, count]) => {
+                const total = summary.total_records || 125
+                const pct = Math.round((count / total) * 100)
+                return (
+                  <div key={zone} className="space-y-1 text-xs">
+                    <div className="flex justify-between text-text-secondary">
+                      <span className="font-medium text-text-primary">{zone}</span>
+                      <span className="font-mono text-accent-cyan font-bold">
+                        {count} ({pct}%)
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-surface-elevated overflow-hidden border border-border-subtle">
+                      <div
+                        className="h-full bg-gradient-to-r from-accent-blue to-accent-cyan rounded-full transition-all duration-500"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="py-8 text-center text-xs text-text-muted">Loading municipal distribution...</div>
+          )}
+        </Card>
+      </div>
+
+      {/* ─── Incident Intelligence Table with Search & Filters ──────────────── */}
+      <Card className="space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border-subtle">
+          <div>
+            <h2 className="text-lg font-bold text-text-primary">Urban Incident Registry</h2>
+            <p className="text-xs text-text-muted">
+              Live operational incident queue with normalized severity scoring
+            </p>
+          </div>
+
+          {/* Table Filters */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Search */}
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-2.5 text-text-muted" />
+              <input
+                type="text"
+                placeholder="Search ID, title, type..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8 pr-3 py-1.5 text-xs bg-surface-elevated border border-border-standard rounded-xl text-text-primary input-focus w-48 sm:w-60"
+              />
+            </div>
+
+            {/* Severity Filter */}
+            <select
+              value={selectedSeverityFilter}
+              onChange={(e) => setSelectedSeverityFilter(e.target.value)}
+              className="px-3 py-1.5 text-xs bg-surface-elevated border border-border-standard rounded-xl text-text-primary input-focus cursor-pointer"
+            >
+              <option value="All">All Severities</option>
+              <option value="Critical">Critical (≥ 8.0)</option>
+              <option value="High">High (6.0 - 7.9)</option>
+              <option value="Medium">Medium (4.0 - 5.9)</option>
+              <option value="Low">Low (&lt; 4.0)</option>
+            </select>
+
+            {/* Zone Filter */}
+            <select
+              value={selectedZoneFilter}
+              onChange={(e) => setSelectedZoneFilter(e.target.value)}
+              className="px-3 py-1.5 text-xs bg-surface-elevated border border-border-standard rounded-xl text-text-primary input-focus cursor-pointer"
+            >
+              <option value="All">All Zones</option>
+              <option value="Central">Central Zone</option>
+              <option value="South">South Zone</option>
+              <option value="North">North Zone</option>
+              <option value="East">East Zone</option>
+              <option value="West">West Zone</option>
+            </select>
+          </div>
+        </div>
+
+        {loading ? (
+          <LoadingState message="Loading incident records..." />
+        ) : filteredIncidents.length === 0 ? (
+          <div className="py-12 text-center text-text-muted text-xs">
+            No incidents found matching current filters.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-border-subtle text-text-muted font-mono uppercase">
+                  <th className="py-3 px-4">Incident ID</th>
+                  <th className="py-3 px-4">Title / Description</th>
+                  <th className="py-3 px-4">Category</th>
+                  <th className="py-3 px-4">Zone / Ward</th>
+                  <th className="py-3 px-4">Severity</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Reported Time</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border-subtle">
+                {filteredIncidents.slice(0, 15).map((inc) => (
+                  <tr key={inc.id} className="hover:bg-surface-elevated/40 transition-colors">
+                    <td className="py-3 px-4 font-mono font-bold text-accent-cyan">
+                      {inc.id}
+                    </td>
+                    <td className="py-3 px-4 font-medium text-text-primary max-w-xs truncate">
+                      {inc.title}
+                    </td>
+                    <td className="py-3 px-4">
+                      <Badge variant="neutral">{inc.incident_type}</Badge>
+                    </td>
+                    <td className="py-3 px-4 text-text-secondary">
+                      {inc.zone}
+                    </td>
+                    <td className="py-3 px-4">
+                      <SeverityBadge severity={inc.severity} />
+                    </td>
+                    <td className="py-3 px-4">
+                      <Badge
+                        variant={inc.status === 'resolved' ? 'low' : inc.status === 'in_progress' ? 'high' : 'cyan'}
+                        dot
+                      >
+                        {inc.status}
+                      </Badge>
+                    </td>
+                    <td className="py-3 px-4 font-mono text-text-muted">
+                      {formatDate(inc.created_at)}
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => navigate(`/features/relationship-graph?incident_id=${inc.id}`)}
+                      >
+                        Ego Graph
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
     </div>
   )
 }

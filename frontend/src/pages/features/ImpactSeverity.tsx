@@ -1,156 +1,175 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { scoringAPI } from '../../lib/api'
-import { Card, LoadingState, ErrorState, SectionHeader, KPICard, SeverityBadge } from '../../components/ui'
-
-const INCIDENT_TYPES = ['Road Damage', 'Flooding / Waterlogging', 'Streetlight Failure', 'Garbage Overflow', 'Water Supply Disruption', 'Gas Leak', 'Fire Hazard', 'Flyover / Bridge Defect', 'Sewer Overflow', 'Traffic Signal Failure']
+import { Card, SectionHeader, Badge, Button, LoadingState, ErrorState, KPICard } from '../../components/ui'
+import { Gauge, Sliders, AlertTriangle, ShieldCheck, CheckCircle2, TrendingUp } from 'lucide-react'
 
 export default function ImpactSeverity() {
   const [form, setForm] = useState({
-    incident_type: INCIDENT_TYPES[0],
-    zone: 'Zone A',
-    reported_severity: '7',
-    affected_population: '500',
-    infrastructure_criticality: '7',
-    economic_impact_estimate: '50000',
-    environmental_impact: '3',
-    social_disruption: '5',
-    resolution_complexity: '4',
+    severity_score: 8.0,
+    impact_radius_meters: 1200,
+    affected_population: 3500,
+    cascading_risk_flag: 1,
   })
+
   const [result, setResult] = useState<any>(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
-  const run = async () => {
-    setLoading(true); setError(''); setResult(null)
+  const computeScore = async () => {
+    setLoading(true)
+    setError(null)
     try {
-      const payload = Object.fromEntries(Object.entries(form).map(([k, v]) => [k, isNaN(Number(v)) ? v : Number(v)]))
-      const r = await scoringAPI.evaluate(payload)
-      setResult(r.data)
-    } catch (e: any) {
-      setError(e?.response?.data?.detail ?? e.message)
-    } finally { setLoading(false) }
+      const res = await scoringAPI.evaluate({
+        severity_score: Number(form.severity_score),
+        impact_radius_meters: Number(form.impact_radius_meters),
+        affected_population: Number(form.affected_population),
+      })
+      setResult(res.data)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'Scoring evaluation failed')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const gauge = (value: number, max = 10) => {
-    const pct = Math.min((value / max) * 100, 100)
-    const color = pct >= 70 ? '#FF5364' : pct >= 50 ? '#FF9955' : pct >= 30 ? '#F3C767' : '#46C99A'
-    return (
-      <div>
-        <div className="flex justify-between text-xs mb-1">
-          <span className="text-text-secondary font-mono">{value?.toFixed?.(1) ?? value}</span>
-          <span className="text-text-muted">/ {max}</span>
-        </div>
-        <div className="h-2 bg-surface-elevated rounded-full overflow-hidden">
-          <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: color }} />
-        </div>
-      </div>
-    )
-  }
+  useEffect(() => {
+    computeScore()
+  }, [])
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in select-none">
+      {/* ─── Header ─────────────────────────────────────────────────────────── */}
+      <Card>
+        <SectionHeader
+          title="Multi-Criteria Impact & Severity Scoring Engine"
+          subtitle="Non-linear composite evaluation balancing physical hazard, territorial radius, and citizen population exposure"
+          badge="Scoring Engine"
+        />
+      </Card>
+
+      {/* ─── Scoring Deck ───────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Form */}
-        <Card>
-          <SectionHeader title="Incident Parameters" subtitle="Configure for composite scoring" />
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs font-medium text-text-muted uppercase mb-1">Incident Type</label>
-              <select value={form.incident_type} onChange={e => setForm(p => ({ ...p, incident_type: e.target.value }))}
-                className="w-full bg-surface-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus">
-                {INCIDENT_TYPES.map(t => <option key={t}>{t}</option>)}
-              </select>
+        {/* Form Controls */}
+        <Card className="space-y-4">
+          <SectionHeader
+            title="Evaluation Parameters"
+            subtitle="Configure physical and demographic exposure"
+          />
+
+          <div className="space-y-4">
+            {/* Severity Score Slider */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="font-semibold uppercase tracking-wider text-text-muted">Raw Severity Score</span>
+                <span className="font-mono text-accent-cyan font-bold">{form.severity_score.toFixed(1)} / 10.0</span>
+              </div>
+              <input
+                type="range"
+                min={1.0}
+                max={10.0}
+                step={0.5}
+                value={form.severity_score}
+                onChange={(e) => setForm((p) => ({ ...p, severity_score: parseFloat(e.target.value) }))}
+                className="w-full accent-accent-cyan cursor-pointer"
+              />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-text-muted uppercase mb-1">Zone</label>
-                <select value={form.zone} onChange={e => setForm(p => ({ ...p, zone: e.target.value }))}
-                  className="w-full bg-surface-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus">
-                  {['Zone A', 'Zone B', 'Zone C', 'Zone D', 'Zone E'].map(z => <option key={z}>{z}</option>)}
-                </select>
+
+            {/* Impact Radius Slider */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="font-semibold uppercase tracking-wider text-text-muted">Impact Radius (Meters)</span>
+                <span className="font-mono text-accent-cyan font-bold">{form.impact_radius_meters} m</span>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-text-muted uppercase mb-1">Reported Severity (1-10)</label>
-                <input type="number" value={form.reported_severity} onChange={e => setForm(p => ({ ...p, reported_severity: e.target.value }))} min={1} max={10}
-                  className="w-full bg-surface-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus" />
-              </div>
+              <input
+                type="range"
+                min={100}
+                max={5000}
+                step={100}
+                value={form.impact_radius_meters}
+                onChange={(e) => setForm((p) => ({ ...p, impact_radius_meters: parseInt(e.target.value) }))}
+                className="w-full accent-accent-cyan cursor-pointer"
+              />
             </div>
-            {[
-              { label: 'Affected Population', key: 'affected_population' },
-              { label: 'Infrastructure Criticality (1-10)', key: 'infrastructure_criticality' },
-              { label: 'Economic Impact (₹)', key: 'economic_impact_estimate' },
-              { label: 'Environmental Impact (1-10)', key: 'environmental_impact' },
-              { label: 'Social Disruption (1-10)', key: 'social_disruption' },
-              { label: 'Resolution Complexity (1-10)', key: 'resolution_complexity' },
-            ].map(({ label, key }) => (
-              <div key={key}>
-                <label className="block text-xs font-medium text-text-muted uppercase mb-1">{label}</label>
-                <input type="number" value={form[key as keyof typeof form]} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))}
-                  className="w-full bg-surface-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus" />
+
+            {/* Affected Population */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="font-semibold uppercase tracking-wider text-text-muted">Exposed Population</span>
+                <span className="font-mono text-accent-cyan font-bold">{form.affected_population.toLocaleString()} citizens</span>
               </div>
-            ))}
-            <button onClick={run} disabled={loading}
-              className="w-full py-2.5 bg-accent-cyan text-bg-main font-semibold rounded-lg hover:bg-accent-deep-cyan transition-colors disabled:opacity-50">
-              {loading ? 'Scoring...' : 'Calculate Impact Score →'}
-            </button>
+              <input
+                type="range"
+                min={100}
+                max={25000}
+                step={250}
+                value={form.affected_population}
+                onChange={(e) => setForm((p) => ({ ...p, affected_population: parseInt(e.target.value) }))}
+                className="w-full accent-accent-cyan cursor-pointer"
+              />
+            </div>
+
+            <Button
+              variant="cyan"
+              className="w-full"
+              loading={loading}
+              icon={<Gauge size={16} />}
+              onClick={computeScore}
+            >
+              Calculate Composite Severity
+            </Button>
           </div>
         </Card>
 
-        {/* Results */}
-        <div className="space-y-4">
-          {loading && <LoadingState message="Running composite impact scoring engine..." />}
-          {error && <ErrorState message={error} onRetry={run} />}
-          {result && !loading && (
-            <>
-              <Card>
-                <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-4">Composite Score</h3>
-                <div className="text-center py-6">
-                  <div className="text-5xl font-black text-accent-cyan mb-2">
-                    {result.composite_score?.toFixed?.(1) ?? result.impact_score?.toFixed?.(1) ?? '—'}
-                  </div>
-                  <div className="text-text-muted text-sm mb-4">/ 10 Composite Impact Score</div>
-                  <SeverityBadge severity={Math.round(result.composite_score ?? result.impact_score ?? 0)} />
+        {/* Results & Score Breakdown */}
+        <Card className="space-y-5">
+          <SectionHeader
+            title="Composite Evaluation Outcome"
+            subtitle="Engineered multi-factor index"
+          />
+
+          {loading ? (
+            <LoadingState message="Computing non-linear composite score..." />
+          ) : error ? (
+            <ErrorState message={error} onRetry={computeScore} />
+          ) : result ? (
+            <div className="space-y-6">
+              {/* Primary Gauge */}
+              <div className="p-5 rounded-2xl bg-gradient-to-r from-bg-midnight to-surface-elevated border border-accent-cyan/30 text-center space-y-2">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-text-muted">
+                  Composite Severity Index
+                </span>
+                <div className="text-5xl font-black font-mono text-gradient-cyan">
+                  {typeof result.composite_severity === 'number' ? result.composite_severity.toFixed(2) : result.composite_severity}
                 </div>
-              </Card>
-
-              {result.score_breakdown && (
-                <Card>
-                  <h3 className="text-sm font-semibold text-text-primary mb-4">Score Breakdown</h3>
-                  <div className="space-y-4">
-                    {Object.entries(result.score_breakdown as Record<string, number>).map(([dim, val]) => (
-                      <div key={dim}>
-                        <div className="text-xs font-medium text-text-secondary capitalize mb-1">{dim.replace(/_/g, ' ')}</div>
-                        {gauge(val)}
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-              )}
-
-              {result.recommendations && (
-                <Card>
-                  <h3 className="text-sm font-semibold text-text-primary mb-3">Scoring Recommendations</h3>
-                  <ul className="space-y-2">
-                    {(result.recommendations as string[]).map((r, i) => (
-                      <li key={i} className="flex gap-2 text-sm text-text-secondary">
-                        <span className="text-accent-cyan mt-0.5 flex-shrink-0">›</span>
-                        {r}
-                      </li>
-                    ))}
-                  </ul>
-                </Card>
-              )}
-            </>
-          )}
-          {!result && !loading && !error && (
-            <Card>
-              <div className="text-center py-12 text-text-muted">
-                <div className="text-4xl mb-3">◉</div>
-                <p className="text-sm">Fill in parameters and calculate the composite impact score</p>
+                <div className="flex items-center justify-center gap-2 mt-2">
+                  <Badge variant={result.composite_severity >= 8 ? 'critical' : result.composite_severity >= 6 ? 'high' : 'medium'} dot>
+                    {result.composite_severity >= 8 ? 'Critical Urban Hazard' : result.composite_severity >= 6 ? 'Elevated Severity' : 'Controlled Impact'}
+                  </Badge>
+                </div>
               </div>
-            </Card>
+
+              {/* Sub-Metric Cards */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3.5 rounded-xl bg-surface-elevated border border-border-subtle">
+                  <span className="text-[10px] font-mono text-text-muted uppercase">Smart Priority Score</span>
+                  <p className="text-2xl font-black font-mono text-accent-blue mt-1">
+                    {typeof result.smart_priority_score === 'number' ? result.smart_priority_score.toFixed(1) : result.smart_priority_score}
+                  </p>
+                  <span className="text-[10px] text-text-secondary">Dispatch Ranking</span>
+                </div>
+                <div className="p-3.5 rounded-xl bg-surface-elevated border border-border-subtle">
+                  <span className="text-[10px] font-mono text-text-muted uppercase">Prevention Impact</span>
+                  <p className="text-2xl font-black font-mono text-severity-low mt-1">
+                    {typeof result.prevention_impact_score === 'number' ? result.prevention_impact_score.toFixed(1) : result.prevention_impact_score}
+                  </p>
+                  <span className="text-[10px] text-text-secondary">Mitigation Potential</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-text-muted">Configure input parameters to evaluate.</p>
           )}
-        </div>
+        </Card>
       </div>
     </div>
   )

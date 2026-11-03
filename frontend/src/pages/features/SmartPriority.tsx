@@ -1,118 +1,173 @@
-import { useState } from 'react'
-import { scoringAPI } from '../../lib/api'
-import { Card, LoadingState, ErrorState, SectionHeader, KPICard, Badge } from '../../components/ui'
-
-const INCIDENT_TYPES = ['Road Damage', 'Flooding / Waterlogging', 'Streetlight Failure', 'Garbage Overflow', 'Water Supply Disruption', 'Gas Leak', 'Fire Hazard', 'Flyover / Bridge Defect', 'Sewer Overflow', 'Traffic Signal Failure']
+import { useEffect, useState } from 'react'
+import { scoringAPI, incidentsAPI, normalizeIncident, NormalizedIncident } from '../../lib/api'
+import { Card, SectionHeader, Badge, Button, LoadingState, ErrorState, KPICard, SeverityBadge } from '../../components/ui'
+import { Flame, ShieldAlert, ArrowUpRight, Zap, CheckCircle2 } from 'lucide-react'
 
 export default function SmartPriority() {
-  const [incident_type, setType] = useState(INCIDENT_TYPES[0])
-  const [severity, setSeverity] = useState('7')
-  const [population, setPopulation] = useState('1000')
-  const [infrastructure, setInfra] = useState('7')
-  const [zone, setZone] = useState('Zone A')
-  const [result, setResult] = useState<any>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [incidents, setIncidents] = useState<NormalizedIncident[]>([])
+  const [selectedIncident, setSelectedIncident] = useState<NormalizedIncident | null>(null)
+  const [evaluatedScore, setEvaluatedScore] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [evaluating, setEvaluating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const run = async () => {
-    setLoading(true); setError(''); setResult(null)
-    try {
-      const r = await scoringAPI.evaluate({
-        incident_type, zone,
-        reported_severity: parseInt(severity),
-        affected_population: parseInt(population),
-        infrastructure_criticality: parseInt(infrastructure),
-        economic_impact_estimate: parseInt(population) * 100,
-        environmental_impact: 5, social_disruption: 5, resolution_complexity: 5,
+  useEffect(() => {
+    incidentsAPI.list({ limit: 15, sort: 'severity_desc' })
+      .then((res) => {
+        const raw = res.data?.data ?? res.data?.incidents ?? (Array.isArray(res.data) ? res.data : [])
+        const norm = raw.map(normalizeIncident)
+        setIncidents(norm)
+        if (norm.length > 0) {
+          setSelectedIncident(norm[0])
+          evaluateIncidentPriority(norm[0])
+        }
       })
-      setResult(r.data)
-    } catch (e: any) { setError(e?.response?.data?.detail ?? e.message) }
-    finally { setLoading(false) }
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const evaluateIncidentPriority = async (inc: NormalizedIncident) => {
+    setEvaluating(true)
+    try {
+      const res = await scoringAPI.evaluate({
+        severity_score: inc.severity ?? 7.0,
+        impact_radius_meters: 1000,
+        affected_population: inc.affected_population || 1500,
+      })
+      setEvaluatedScore(res.data)
+    } catch (err: any) {
+      console.error('Failed to compute priority', err)
+    } finally {
+      setEvaluating(false)
+    }
   }
 
-  const getPriorityColor = (p: string) => ({
-    P1: '#FF5364', P2: '#FF9955', P3: '#F3C767', P4: '#46C99A'
-  }[p?.toUpperCase()] ?? '#73889D')
+  const handleSelect = (inc: NormalizedIncident) => {
+    setSelectedIncident(inc)
+    evaluateIncidentPriority(inc)
+  }
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <SectionHeader title="Priority Input" subtitle="AI-driven priority computation" />
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-text-muted uppercase mb-1">Incident Type</label>
-              <select value={incident_type} onChange={e => setType(e.target.value)}
-                className="w-full bg-surface-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus">
-                {INCIDENT_TYPES.map(t => <option key={t}>{t}</option>)}
-              </select>
+    <div className="space-y-6 animate-fade-in select-none">
+      <Card>
+        <SectionHeader
+          title="Smart Priority Engine"
+          subtitle="Dynamic priority scoring combining composite hazard, population radius, and dispatch urgency"
+          badge="Priority Rank Algorithm"
+        />
+      </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Ranked Incident Queue */}
+        <Card className="lg:col-span-2 space-y-4">
+          <SectionHeader
+            title="Operational Triage Queue"
+            subtitle="Select an incident to evaluate its dynamic dispatch priority"
+          />
+
+          {loading ? (
+            <LoadingState message="Loading operational incidents..." />
+          ) : error ? (
+            <ErrorState message={error} />
+          ) : (
+            <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+              {incidents.map((inc, i) => {
+                const isSelected = selectedIncident?.id === inc.id
+                return (
+                  <div
+                    key={inc.id}
+                    onClick={() => handleSelect(inc)}
+                    className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
+                      isSelected
+                        ? 'bg-accent-blue/15 border-accent-cyan shadow-glow-cyan'
+                        : 'bg-surface-elevated border-border-subtle hover:border-border-standard hover:bg-surface-hover'
+                    }`}
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-bold text-accent-cyan">
+                          #{i + 1} {inc.id}
+                        </span>
+                        <Badge variant="cyan">{inc.incident_type}</Badge>
+                      </div>
+                      <p className="text-sm font-semibold text-text-primary max-w-md truncate">
+                        {inc.title}
+                      </p>
+                      <p className="text-xs text-text-muted">
+                        Zone: {inc.zone} • {inc.affected_population.toLocaleString()} citizens
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <SeverityBadge severity={inc.severity} />
+                      <ArrowUpRight size={16} className={isSelected ? 'text-accent-cyan' : 'text-text-muted'} />
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-            {[
-              { label: 'Severity (1-10)', val: severity, set: setSeverity },
-              { label: 'Affected Population', val: population, set: setPopulation },
-              { label: 'Infrastructure Criticality (1-10)', val: infrastructure, set: setInfra },
-            ].map(({ label, val, set }) => (
-              <div key={label}>
-                <label className="block text-xs font-medium text-text-muted uppercase mb-1">{label}</label>
-                <input type="number" value={val} onChange={e => set(e.target.value)}
-                  className="w-full bg-surface-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus" />
-              </div>
-            ))}
-            <div>
-              <label className="block text-xs font-medium text-text-muted uppercase mb-1">Zone</label>
-              <select value={zone} onChange={e => setZone(e.target.value)}
-                className="w-full bg-surface-elevated border border-border-standard rounded-lg px-3 py-2 text-sm text-text-primary input-focus">
-                {['Zone A', 'Zone B', 'Zone C', 'Zone D', 'Zone E'].map(z => <option key={z}>{z}</option>)}
-              </select>
-            </div>
-            <button onClick={run} disabled={loading}
-              className="w-full py-2.5 bg-accent-cyan text-bg-main font-semibold rounded-lg hover:bg-accent-deep-cyan transition-colors disabled:opacity-50">
-              {loading ? 'Computing...' : 'Compute Smart Priority →'}
-            </button>
-          </div>
+          )}
         </Card>
 
-        <div className="space-y-4">
-          {loading && <LoadingState message="Running smart priority engine..." />}
-          {error && <ErrorState message={error} onRetry={run} />}
-          {result && !loading && (
-            <>
-              <Card>
-                <div className="text-center py-8">
-                  <div className="text-xs font-semibold text-text-muted uppercase tracking-widest mb-3">Priority Level</div>
-                  <div className="text-6xl font-black mb-3" style={{ color: getPriorityColor(result.priority_level ?? result.priority) }}>
-                    {result.priority_level ?? result.priority ?? 'P?'}
-                  </div>
-                  <div className="text-text-muted text-sm">Smart Priority Score: <span className="text-text-primary font-bold">{result.composite_score?.toFixed?.(1) ?? result.priority_score?.toFixed?.(1) ?? '—'}</span></div>
+        {/* Priority Evaluation Deck */}
+        <Card className="space-y-4">
+          <SectionHeader title="Priority Assessment" subtitle="Automated dispatch ranking" />
+
+          {selectedIncident ? (
+            <div className="space-y-4 text-xs">
+              <div className="p-4 rounded-2xl bg-surface-elevated border border-accent-cyan/30 space-y-2">
+                <span className="text-[10px] font-mono text-accent-cyan uppercase">
+                  Active Triage • {selectedIncident.id}
+                </span>
+                <p className="text-sm font-bold text-text-primary">{selectedIncident.title}</p>
+                <div className="flex gap-2">
+                  <Badge variant="cyan">{selectedIncident.zone}</Badge>
+                  <SeverityBadge severity={selectedIncident.severity} />
                 </div>
-              </Card>
-              {result.score_breakdown && (
-                <Card>
-                  <h3 className="text-sm font-semibold text-text-primary mb-4">Priority Dimensions</h3>
-                  <div className="space-y-3">
-                    {Object.entries(result.score_breakdown as Record<string, number>).map(([k, v]) => (
-                      <div key={k} className="flex items-center gap-3">
-                        <div className="text-xs text-text-secondary capitalize w-32 flex-shrink-0">{k.replace(/_/g, ' ')}</div>
-                        <div className="flex-1 h-1.5 bg-surface-elevated rounded-full overflow-hidden">
-                          <div className="h-full bg-accent-cyan rounded-full" style={{ width: `${(v / 10) * 100}%` }} />
-                        </div>
-                        <div className="text-xs text-text-muted font-mono w-8 text-right">{v?.toFixed?.(1)}</div>
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-              )}
-            </>
-          )}
-          {!result && !loading && !error && (
-            <Card>
-              <div className="text-center py-12 text-text-muted">
-                <div className="text-4xl mb-3">▲</div>
-                <p className="text-sm">Compute priority to see AI ranking</p>
               </div>
-            </Card>
+
+              {evaluating ? (
+                <LoadingState message="Recalculating priority tier..." />
+              ) : evaluatedScore ? (
+                <div className="space-y-4">
+                  {/* Priority Tier Display */}
+                  <div className="p-4 rounded-xl bg-gradient-to-r from-bg-midnight to-surface-card border border-border-standard text-center space-y-1">
+                    <span className="text-[10px] font-mono uppercase text-text-muted">Priority Score</span>
+                    <div className="text-4xl font-black font-mono text-accent-blue">
+                      {typeof evaluatedScore.smart_priority_score === 'number'
+                        ? evaluatedScore.smart_priority_score.toFixed(1)
+                        : evaluatedScore.smart_priority_score}
+                    </div>
+                    <Badge variant={evaluatedScore.smart_priority_score >= 80 ? 'critical' : 'high'} dot className="mt-1">
+                      {evaluatedScore.smart_priority_score >= 80 ? 'P1 — Immediate Emergency Response' : 'P2 — Priority Dispatch'}
+                    </Badge>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between py-1.5 border-b border-border-subtle">
+                      <span className="text-text-muted">Composite Severity</span>
+                      <span className="font-mono text-text-primary font-bold">
+                        {typeof evaluatedScore.composite_severity === 'number'
+                          ? evaluatedScore.composite_severity.toFixed(2)
+                          : evaluatedScore.composite_severity}
+                      </span>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-border-subtle">
+                      <span className="text-text-muted">Prevention Potential</span>
+                      <span className="font-mono text-severity-low font-bold">
+                        {typeof evaluatedScore.prevention_impact_score === 'number'
+                          ? evaluatedScore.prevention_impact_score.toFixed(1)
+                          : evaluatedScore.prevention_impact_score}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-xs text-text-muted">Select an incident to triage.</p>
           )}
-        </div>
+        </Card>
       </div>
     </div>
   )
