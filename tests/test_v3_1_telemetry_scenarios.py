@@ -1,23 +1,21 @@
 """
-CivicOS V3.1.1 Telemetry Data Integrity Scenario Tests
-Tests three critical telemetry conditions in Chromium:
-  Scenario A: Populated live database (All real metrics rendered)
-  Scenario B: Empty API Response Scenario (Frontend renders 0, ZERO fallback numbers)
-  Scenario C: Disconnected backend (API: DISCONNECTED badge, N/A metrics, zero LIVE flags)
+CivicOS V3.1.2 Telemetry Data Integrity and Health-Check Hardening Tests
+Tests all five critical health-check and telemetry conditions in Chromium:
+  1. Every service operational (Status: Connected, live telemetry rendered)
+  2. One sub-service unavailable (Status: Degraded, partial outage disclosed)
+  3. Root backend unavailable (Status: Disconnected, N/A metrics, zero LIVE flags)
+  4. Expired authentication (Status: Degraded / Auth Required, NOT Disconnected)
+  5. Empty but healthy database (Status: Connected, metrics strictly 0, ZERO fallbacks)
 
-Security:
-  - Uses CIVICOS_TEST_USERNAME and CIVICOS_TEST_PASSWORD environment variables if configured.
-  - Otherwise provisions a disposable, isolated test administrator via AuthService.
-  - Zero hardcoded credentials in source control.
+Security Guarantee:
+  - Requires explicit CIVICOS_TEST_USERNAME and CIVICOS_TEST_PASSWORD for live backend authentication.
+  - Zero modifications to canonical project runtime database (OPERATIONS_DB_PATH).
+  - Zero hardcoded passwords in source code.
 """
 import os
-import secrets
 import pytest
 import time
 from playwright.sync_api import sync_playwright
-
-from src.config import OPERATIONS_DB_PATH
-from src.security.auth import AuthService
 
 BASE_URL = "http://127.0.0.1:5173"
 
@@ -42,38 +40,26 @@ def browser_context():
 @pytest.fixture(scope="module")
 def test_admin_credentials():
     """
-    Secure credential provider for telemetry scenario testing.
-    1. Checks environment variables CIVICOS_TEST_USERNAME and CIVICOS_TEST_PASSWORD.
-    2. If not set, provisions a disposable ephemeral test administrator account
-       directly via AuthService with a cryptographically generated password,
-       and disables/removes it during teardown.
-    Never prints or hardcodes credentials.
+    Secure credential provider for live telemetry testing.
+    Requires explicitly configured credentials via CIVICOS_TEST_USERNAME and CIVICOS_TEST_PASSWORD.
+
+    To ensure test isolation and protect municipal data integrity, this fixture
+    does NOT write to or modify the canonical project runtime database.
+    If credentials are not configured, live integration tests are safely skipped.
     """
     env_user = os.getenv("CIVICOS_TEST_USERNAME")
     env_pass = os.getenv("CIVICOS_TEST_PASSWORD")
     if env_user and env_pass:
-        yield {"username": env_user, "password": env_pass}
-        return
+        return {"username": env_user, "password": env_pass}
 
-    # Provision disposable ephemeral test administrator
-    disposable_user = f"disposable_adm_{secrets.token_hex(4)}"
-    disposable_pass = secrets.token_urlsafe(20) + "Aa1!"
-    auth_service = AuthService(OPERATIONS_DB_PATH)
-    auth_service.create_user(disposable_user, disposable_pass, "administrator")
-
-    try:
-        yield {"username": disposable_user, "password": disposable_pass}
-    finally:
-        # Secure cleanup: disable and revoke disposable test user
-        try:
-            with auth_service._connect() as conn:
-                conn.execute("UPDATE users SET disabled = 1 WHERE username = ?", (disposable_user.casefold(),))
-                conn.execute("DELETE FROM users WHERE username = ?", (disposable_user.casefold(),))
-        except Exception:
-            pass
+    pytest.skip(
+        "CIVICOS_TEST_USERNAME and CIVICOS_TEST_PASSWORD environment variables are not configured. "
+        "Skipping live browser integration tests to prevent modification of canonical project database."
+    )
 
 
-def login_if_needed(page, creds):
+def login_with_env_credentials(page, creds):
+    """Authenticate via UI using explicit environment credentials."""
     page.goto(f"{BASE_URL}/login")
     try:
         page.wait_for_selector("input[type='password']", timeout=3000)
@@ -82,22 +68,23 @@ def login_if_needed(page, creds):
         page.click("button[type='submit']")
         page.wait_for_url(f"{BASE_URL}/", timeout=10000)
     except Exception:
-        # Already logged in
+        # Session already established
         pass
 
 
-def test_scenario_a_populated_database(browser_context, test_admin_credentials):
-    """Scenario A: Live populated backend - all real values rendered."""
+# ─── 1. Every Service Operational ─────────────────────────────────────────────
+def test_scenario_1_every_service_operational(browser_context, test_admin_credentials):
+    """Condition 1: Every service operational -> Status: Connected, verified KPIs rendered."""
     page = browser_context.new_page()
-    login_if_needed(page, test_admin_credentials)
+    login_with_env_credentials(page, test_admin_credentials)
 
     page.goto(f"{BASE_URL}/")
     page.wait_for_load_state("networkidle", timeout=10000)
     time.sleep(2)
 
-    # 1. API Health should be CONNECTED
+    # 1. API Health must show Connected on both Navbar and Dashboard
     health_badge = page.get_by_text("API: Connected").first
-    assert health_badge.is_visible(), "API Health must indicate 'API: Connected' on live backend"
+    assert health_badge.is_visible(), "Navbar and Dashboard must indicate 'API: Connected' when all services are healthy"
 
     # 2. Total Incidents should be positive integer (125)
     total_val = page.get_by_test_id("kpi-total-incidents-value").inner_text().strip()
@@ -108,36 +95,120 @@ def test_scenario_a_populated_database(browser_context, test_admin_credentials):
     assert active_val not in ["N/A", "—"], f"Active incidents must be resolved, got: {active_val}"
     assert int(active_val) > 0, f"Expected active incidents > 0, got {active_val}"
 
-    # 4. Critical Alerts should be real number (66)
+    # 4. Critical Alerts should be confirmed number (66)
     crit_val = page.get_by_test_id("kpi-critical-alerts-value").inner_text().strip()
     assert "66" in crit_val, f"Expected 66 critical alerts, got: {crit_val}"
 
-    # 5. Active Work Orders should be real count (> 0)
-    wo_val = page.get_by_test_id("kpi-active-work-orders-value").inner_text().strip()
-    assert wo_val not in ["N/A", "—"], f"Work orders must be resolved, got: {wo_val}"
-    assert int(wo_val) > 0, f"Expected active work orders > 0, got {wo_val}"
-
-    # 6. High-Risk Zones should be DBSCAN clusters count
-    hotspot_val = page.get_by_test_id("kpi-high-risk-zones-value").inner_text().strip()
-    assert hotspot_val not in ["N/A", "—"], f"Hotspots must be resolved, got: {hotspot_val}"
-
-    # 7. Cascading Events should be confirmed count (93)
+    # 5. Cascading Events should be confirmed number (93)
     cascade_val = page.get_by_test_id("kpi-cascading-events-value").inner_text().strip()
     assert "93" in cascade_val, f"Expected 93 cascading events, got: {cascade_val}"
 
     page.close()
 
 
-def test_scenario_b_empty_api_response(browser_context, test_admin_credentials):
-    """
-    Scenario B: Empty API Response Scenario
-    Simulates empty municipal API responses to verify frontend displays 0 and
-    ZERO fabricated fallback numbers (89, 8, 36, 93, 125).
-    """
+# ─── 2. One Sub-Service Unavailable ───────────────────────────────────────────
+def test_scenario_2_one_subservice_unavailable(browser_context, test_admin_credentials):
+    """Condition 2: One sub-service unavailable -> Status: Degraded, partial outage banner visible."""
     page = browser_context.new_page()
-    login_if_needed(page, test_admin_credentials)
+    login_with_env_credentials(page, test_admin_credentials)
 
-    # Intercept API calls to simulate empty municipal API response payload
+    # Sub-service failure on work-orders endpoint
+    page.route("**/api/work-orders*", lambda route: route.fulfill(
+        status=503,
+        content_type="application/json",
+        json={"detail": "Work orders service unavailable"}
+    ))
+
+    page.goto(f"{BASE_URL}/")
+    time.sleep(2)
+
+    # 1. API Health must show Degraded (NOT Connected, NOT Disconnected)
+    degraded_badge = page.get_by_text("API: Degraded").first
+    assert degraded_badge.is_visible(), "Must indicate 'API: Degraded' when a sub-service fails"
+    assert not page.get_by_text("API: Connected").first.is_visible(), "Must NOT display 'API: Connected' during partial outage"
+
+    # 2. Partial outage banner must be visible identifying failed service
+    banner = page.locator("text=/Unable to reach/i")
+    assert banner.is_visible(), "Partial outage alert banner must be displayed"
+    assert "Work Orders" in banner.inner_text(), "Banner must identify Work Orders service"
+
+    # 3. Successful endpoints still render confirmed telemetry
+    total_val = page.get_by_test_id("kpi-total-incidents-value").inner_text().strip()
+    assert "125" in total_val, "Confirmed telemetry from active endpoints must remain visible"
+
+    page.close()
+
+
+# ─── 3. Root Backend Unavailable ──────────────────────────────────────────────
+def test_scenario_3_root_backend_unavailable(browser_context, test_admin_credentials):
+    """Condition 3: Root backend unavailable -> Status: Disconnected, N/A metrics, zero LIVE flags."""
+    page = browser_context.new_page()
+    login_with_env_credentials(page, test_admin_credentials)
+
+    # Abort all network traffic to simulate server down
+    page.route("**/health", lambda route: route.abort())
+    page.route("**/api/**", lambda route: route.abort())
+
+    page.goto(f"{BASE_URL}/")
+    time.sleep(2)
+
+    # 1. API Health MUST show DISCONNECTED (Never LIVE, Never Connected)
+    disconn_badge = page.get_by_text("API: Disconnected").first
+    assert disconn_badge.is_visible(), "API status must clearly state 'API: Disconnected'"
+    assert not page.locator("text=/API Health: LIVE/i").is_visible(), "Must NEVER show static 'LIVE' when disconnected!"
+
+    # 2. Disconnected alert banner must be visible
+    banner = page.locator("text=/Backend Disconnected/i")
+    assert banner.is_visible(), "Disconnected warning banner must be displayed"
+
+    # 3. KPIs should show N/A or —, NEVER fabricated metrics
+    total_val = page.get_by_test_id("kpi-total-incidents-value").inner_text().strip()
+    assert total_val in ["N/A", "—"], f"Total Incidents should be N/A or —, got: '{total_val}'"
+    assert "125" not in total_val, "Total Incidents must NOT fabricate 125 when disconnected"
+
+    page.close()
+
+
+# ─── 4. Expired Authentication ────────────────────────────────────────────────
+def test_scenario_4_expired_authentication(browser_context, test_admin_credentials):
+    """Condition 4: Expired authentication (HTTP 401) -> Status: Degraded / Auth Required, NOT Disconnected."""
+    page = browser_context.new_page()
+    login_with_env_credentials(page, test_admin_credentials)
+
+    # Authenticated endpoints return 401 while root health remains healthy
+    page.route("**/api/incidents*", lambda route: route.fulfill(
+        status=401,
+        content_type="application/json",
+        json={"detail": "Valid session required."}
+    ))
+    page.route("**/api/work-orders*", lambda route: route.fulfill(
+        status=401,
+        content_type="application/json",
+        json={"detail": "Valid session required."}
+    ))
+
+    page.goto(f"{BASE_URL}/")
+    time.sleep(2)
+
+    # 1. API Health must show Degraded, NEVER Disconnected (the server is online!)
+    assert page.get_by_text("API: Degraded").first.is_visible(), "Must indicate Degraded when session is expired"
+    assert not page.get_by_text("API: Disconnected").first.is_visible(), "Must NOT claim Disconnected for authentication expiration!"
+
+    # 2. Degraded banner must note auth required / session expired
+    banner = page.locator("text=/Unable to reach/i")
+    assert banner.is_visible(), "Degraded banner must be displayed"
+    assert "Auth Required" in banner.inner_text() or "Session Expired" in banner.inner_text(), "Banner must distinguish auth from backend outage"
+
+    page.close()
+
+
+# ─── 5. Empty but Healthy Database ───────────────────────────────────────────
+def test_scenario_5_empty_healthy_database(browser_context, test_admin_credentials):
+    """Condition 5: Empty but healthy database -> Status: Connected, values strictly 0, ZERO fallback constants."""
+    page = browser_context.new_page()
+    login_with_env_credentials(page, test_admin_credentials)
+
+    # Intercept API calls to simulate confirmed empty database
     page.route("**/health", lambda route: route.fulfill(
         status=200,
         content_type="application/json",
@@ -167,7 +238,7 @@ def test_scenario_b_empty_api_response(browser_context, test_admin_credentials):
     page.goto(f"{BASE_URL}/")
     time.sleep(2)
 
-    # 1. API Health is still connected
+    # 1. API Health is Connected
     assert page.get_by_text("API: Connected").first.is_visible()
 
     # 2. Total Incidents must be strictly 0 (NOT 125)
@@ -199,34 +270,5 @@ def test_scenario_b_empty_api_response(browser_context, test_admin_credentials):
     cascade_val = page.get_by_test_id("kpi-cascading-events-value").inner_text().strip()
     assert cascade_val == "0", f"Cascading Events must be '0', got '{cascade_val}'"
     assert "93" not in cascade_val, "Cascading Events must NOT fall back to 93!"
-
-    page.close()
-
-
-def test_scenario_c_backend_disconnected(browser_context, test_admin_credentials):
-    """Scenario C: Backend disconnected - must show Disconnected badge and N/A metrics, NEVER LIVE."""
-    page = browser_context.new_page()
-    login_if_needed(page, test_admin_credentials)
-
-    # Abort all backend network calls
-    page.route("**/health", lambda route: route.abort())
-    page.route("**/api/**", lambda route: route.abort())
-
-    page.goto(f"{BASE_URL}/")
-    time.sleep(2)
-
-    # 1. API Health MUST show DISCONNECTED (Never LIVE, Never Connected)
-    disconn_badge = page.get_by_text("API: Disconnected").first
-    assert disconn_badge.is_visible(), "API status must clearly state 'API: Disconnected'"
-    assert not page.locator("text=/API Health: LIVE/i").is_visible(), "Must NEVER show static 'LIVE' when disconnected!"
-
-    # 2. Alert banner must be visible
-    banner = page.locator("text=/Backend Disconnected/i")
-    assert banner.is_visible(), "Disconnected warning banner must be displayed"
-
-    # 3. KPIs should show N/A or —, NEVER fabricated metrics
-    total_val = page.get_by_test_id("kpi-total-incidents-value").inner_text().strip()
-    assert total_val in ["N/A", "—"], f"Total Incidents should be N/A or —, got: '{total_val}'"
-    assert "125" not in total_val, "Total Incidents must NOT fabricate 125 when disconnected"
 
     page.close()

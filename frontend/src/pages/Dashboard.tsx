@@ -58,7 +58,7 @@ interface SummaryData {
   cascading_events_count?: number
 }
 
-type ServiceStatus = 'idle' | 'loading' | 'success' | 'error'
+type ServiceStatus = 'idle' | 'loading' | 'success' | 'error' | 'unauthorized'
 
 interface ServiceStates {
   health: ServiceStatus
@@ -105,12 +105,18 @@ export default function Dashboard() {
     if (services.health === 'loading') return 'checking'
     if (services.health === 'error') return 'disconnected'
 
-    const failedSubservices = [services.summary, services.incidents, services.hotspots, services.workOrders].filter(
-      (s) => s === 'error'
+    const hasSubserviceFailure = [services.summary, services.incidents, services.hotspots, services.workOrders].some(
+      (s) => s === 'error' || s === 'unauthorized'
     )
 
-    if (failedSubservices.length > 0) return 'degraded'
-    if (services.health === 'success') return 'connected'
+    if (hasSubserviceFailure) return 'degraded'
+    if (services.health === 'success') {
+      const allChecked = [services.summary, services.incidents, services.hotspots, services.workOrders].every(
+        (s) => s === 'success'
+      )
+      if (allChecked) return 'connected'
+      return 'checking'
+    }
     return 'checking'
   }, [services])
 
@@ -122,11 +128,13 @@ export default function Dashboard() {
   // Failed service names for degraded warning
   const failedServices = useMemo(() => {
     const list: string[] = []
-    if (services.health === 'error') list.push('Health API')
+    if (services.health === 'error') list.push('Health API (Offline)')
     if (services.summary === 'error') list.push('Summary API')
-    if (services.incidents === 'error') list.push('Incidents Registry')
     if (services.hotspots === 'error') list.push('DBSCAN Hotspots')
-    if (services.workOrders === 'error') list.push('Work Orders Pipeline')
+    if (services.incidents === 'error') list.push('Incidents Registry (Error)')
+    if (services.incidents === 'unauthorized') list.push('Incidents Registry (Session Expired / Auth Required)')
+    if (services.workOrders === 'error') list.push('Work Orders Pipeline (Error)')
+    if (services.workOrders === 'unauthorized') list.push('Work Orders Pipeline (Session Expired / Auth Required)')
     return list
   }, [services])
 
@@ -154,8 +162,10 @@ export default function Dashboard() {
       workOrders: 'idle',
     }
 
+    const probeConfig = { headers: { 'X-Health-Probe': '1' } }
+
     // 1. Health API
-    const pHealth = healthAPI.health()
+    const pHealth = healthAPI.health(probeConfig)
       .then((res) => {
         setHealth(res.data)
         setServices((prev) => ({ ...prev, health: 'success' })); finalStates.health = 'success'
@@ -168,7 +178,7 @@ export default function Dashboard() {
       })
 
     // 2. Incidents Summary API
-    const pSummary = healthAPI.summary()
+    const pSummary = healthAPI.summary(probeConfig)
       .then((res) => {
         setSummary(res.data)
         setServices((prev) => ({ ...prev, summary: 'success' })); finalStates.summary = 'success'
@@ -181,7 +191,7 @@ export default function Dashboard() {
       })
 
     // 3. Incidents List API
-    const pIncidents = incidentsAPI.list({ limit: 150 })
+    const pIncidents = incidentsAPI.list({ limit: 150 }, probeConfig)
       .then((res) => {
         const raw = res.data?.data ?? res.data?.incidents ?? (Array.isArray(res.data) ? res.data : [])
         const norm = raw.map(normalizeIncident)
@@ -194,8 +204,10 @@ export default function Dashboard() {
       })
       .catch((err) => {
         console.warn('[Telemetry] /api/incidents error:', err.message)
+        const isAuth = err.response?.status === 401 || err.response?.status === 403
         setIncidents([])
-        setServices((prev) => ({ ...prev, incidents: 'error' })); finalStates.incidents = 'error'
+        setServices((prev) => ({ ...prev, incidents: isAuth ? 'unauthorized' : 'error' }))
+        finalStates.incidents = isAuth ? 'unauthorized' : 'error'
       })
 
     // 4. Geospatial Hotspots API
@@ -213,7 +225,7 @@ export default function Dashboard() {
       })
 
     // 5. Work Orders API
-    const pWorkOrders = workOrdersAPI.list()
+    const pWorkOrders = workOrdersAPI.list(probeConfig)
       .then((res) => {
         const raw = res.data?.data ?? (Array.isArray(res.data) ? res.data : [])
         setWorkOrders(raw.map(normalizeWorkOrder))
@@ -222,8 +234,10 @@ export default function Dashboard() {
       })
       .catch((err) => {
         console.warn('[Telemetry] /api/work-orders error:', err.message)
+        const isAuth = err.response?.status === 401 || err.response?.status === 403
         setWorkOrders([])
-        setServices((prev) => ({ ...prev, workOrders: 'error' })); finalStates.workOrders = 'error'
+        setServices((prev) => ({ ...prev, workOrders: isAuth ? 'unauthorized' : 'error' }))
+        finalStates.workOrders = isAuth ? 'unauthorized' : 'error'
       })
 
     await Promise.allSettled([pHealth, pSummary, pIncidents, pHotspots, pWorkOrders])

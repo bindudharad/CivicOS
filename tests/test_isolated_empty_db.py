@@ -1,13 +1,15 @@
 """
-Genuine Isolated Empty Database Test for CivicOS V3.1.1
+Genuine Isolated Empty Database Test for CivicOS V3.1.2
 Tests that an actual clean SQLite database with zero records:
 1. Initializes all required tables without error.
 2. Returns exactly 0 records for incidents and work orders.
 3. Successfully serves REST API endpoints returning confirmed zero counts.
 4. Leaves the normal project database completely untouched.
 5. Cleans up all temporary database files upon completion.
+6. Generates unique dynamic credentials using secrets (zero hardcoded passwords).
 """
 import pytest
+import secrets
 import sqlite3
 from pathlib import Path
 from fastapi.testclient import TestClient
@@ -48,9 +50,9 @@ def test_isolated_empty_sqlite_database(tmp_path):
     assert len(incidents_list) == 0, f"Clean database must have 0 incidents, found {len(incidents_list)}"
     assert len(work_orders_list) == 0, f"Clean database must have 0 work orders, found {len(work_orders_list)}"
 
-    # 6. Provision an isolated temporary admin user in the isolated database
-    temp_admin_user = "iso_admin"
-    temp_admin_pass = "IsoSecureAdminPass123!"
+    # 6. Provision an isolated temporary admin user with cryptographically generated credentials
+    temp_admin_user = f"iso_admin_{secrets.token_hex(4)}"
+    temp_admin_pass = secrets.token_urlsafe(24) + "Aa1!"
     test_auth.create_user(temp_admin_user, temp_admin_pass, "administrator")
     login_res = test_auth.login(temp_admin_user, temp_admin_pass)
     assert login_res is not None, "Login on isolated database must succeed"

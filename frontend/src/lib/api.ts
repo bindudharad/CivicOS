@@ -20,7 +20,7 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    if (err.response?.status === 401 && !err.config?.headers?.["X-Health-Probe"]) {
       localStorage.removeItem('civicos_token')
       localStorage.removeItem('civicos_user')
       window.dispatchEvent(new Event('civicos:logout'))
@@ -154,18 +154,18 @@ export const authAPI = {
 }
 
 export const healthAPI = {
-  health: () => api.get('/health'),
-  summary: () => api.get('/api/incidents/summary'),
+  health: (config?: Record<string, unknown>) => api.get('/health', config),
+  summary: (config?: Record<string, unknown>) => api.get('/api/incidents/summary', config),
 }
 
 export const incidentsAPI = {
-  list: (params?: Record<string, unknown>) => api.get('/api/incidents', { params }),
-  get: (id: string | number) => api.get(`/api/incidents/${id}`),
-  create: (data: Record<string, unknown>) => api.post('/api/incidents', data),
+  list: (params?: Record<string, unknown>, config?: Record<string, unknown>) => api.get('/api/incidents', { params, ...config }),
+  get: (id: string | number, config?: Record<string, unknown>) => api.get(`/api/incidents/${id}`, config),
+  create: (data: Record<string, unknown>, config?: Record<string, unknown>) => api.post('/api/incidents', data, config),
 }
 
 export const workOrdersAPI = {
-  list: (params?: Record<string, unknown>) => api.get('/api/work-orders', { params }),
+  list: (config?: Record<string, unknown>) => api.get('/api/work-orders', config),
   assign: (id: string | number, assignee: string) =>
     api.patch(`/api/work-orders/${id}/assign`, { assignee }),
   start: (id: string | number) =>
